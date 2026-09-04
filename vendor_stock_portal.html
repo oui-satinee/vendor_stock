@@ -7,172 +7,365 @@
 <script src="tableau.extensions.1.latest.js"></script>
 <style>
   :root{
-    --bg:#f5f7fa; --surface:#ffffff; --surface-2:#eef1f6; --border:rgba(11,14,20,0.10);
-    --text-primary:#0b0e14; --text-secondary:#4b5566; --text-muted:#838b99;
-    --accent:#2a78d6; --accent-soft:rgba(42,120,214,0.12);
-    --status-critical:#d03b3b; --status-critical-bg:rgba(208,59,59,0.10);
-    --status-good:#0ca30c; --status-warning:#fab219;
-    --gridline:#e3e7ee; --shadow:0 1px 2px rgba(11,14,20,0.04),0 8px 24px rgba(11,14,20,0.05);
+    color-scheme: light;
+    --bg: #f5f7fa;
+    --surface: #ffffff;
+    --surface-2: #eef1f6;
+    --surface-3: #f7f9fc;
+    --border: rgba(11,14,20,0.10);
+    --border-strong: rgba(11,14,20,0.16);
+    --text-primary: #0b0e14;
+    --text-secondary: #4b5566;
+    --text-muted: #838b99;
+    --accent: #2a78d6;
+    --accent-soft: rgba(42,120,214,0.12);
+    --accent-violet: #4a3aa7;
+    --status-critical: #d03b3b;
+    --status-critical-bg: rgba(208,59,59,0.10);
+    --status-good: #0ca30c;
+    --status-good-bg: rgba(12,163,12,0.10);
+    --status-warning: #fab219;
+    --status-warning-bg: rgba(250,178,25,0.14);
+    --gridline: #e3e7ee;
+    --baseline: #c7ccd6;
+    --seq-1: #86b6ef; --seq-2: #6da7ec; --seq-3: #5598e7; --seq-4: #3987e5;
+    --seq-5: #2a78d6; --seq-6: #256abf; --seq-7: #1c5cab; --seq-8: #184f95;
+    --shadow: 0 1px 2px rgba(11,14,20,0.04), 0 8px 24px rgba(11,14,20,0.05);
   }
-  *{box-sizing:border-box}
-  html,body{margin:0;padding:0}
-  body{background:var(--bg);color:var(--text-primary);font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55}
-  .wrap{max-width:1500px;margin:0 auto;padding:16px 20px 24px}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --bg: #0d0f12; --surface: #15181d; --surface-2: #1c2027; --surface-3: #191d23;
+      --border: rgba(255,255,255,0.10); --border-strong: rgba(255,255,255,0.18);
+      --text-primary: #ffffff; --text-secondary: #c3c8d1; --text-muted: #8a8f9c;
+      --accent: #3987e5; --accent-soft: rgba(57,135,229,0.16); --accent-violet: #9085e9;
+      --status-critical: #e66767; --status-critical-bg: rgba(230,103,103,0.15);
+      --status-good: #0ca30c; --status-good-bg: rgba(12,163,12,0.16);
+      --status-warning: #fab219; --status-warning-bg: rgba(250,178,25,0.14);
+      --gridline: #2c3038; --baseline: #383a42;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg: #0d0f12; --surface: #15181d; --surface-2: #1c2027; --surface-3: #191d23;
+    --border: rgba(255,255,255,0.10); --border-strong: rgba(255,255,255,0.18);
+    --text-primary: #ffffff; --text-secondary: #c3c8d1; --text-muted: #8a8f9c;
+    --accent: #3987e5; --accent-soft: rgba(57,135,229,0.16); --accent-violet: #9085e9;
+    --status-critical: #e66767; --status-critical-bg: rgba(230,103,103,0.15);
+    --status-good: #0ca30c; --status-good-bg: rgba(12,163,12,0.16);
+    --gridline: #2c3038; --baseline: #383a42;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
 
-  /* Loading / error */
-  .loading-overlay{display:none;text-align:center;padding:60px 20px;color:var(--text-secondary)}
-  .loading-overlay .spinner{display:inline-block;width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:10px}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .error-banner{display:none;background:var(--status-critical-bg);border:1px solid rgba(208,59,59,0.35);border-radius:8px;padding:12px 16px;margin-bottom:14px;color:var(--status-critical);font-size:13px}
-  .error-banner button{float:right;cursor:pointer;font-weight:700;background:none;border:none;color:var(--status-critical)}
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--bg); color: var(--text-primary);
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  .wrap{ max-width: 1600px; margin: 0 auto; padding: 16px 24px 20px; }
+  h1,h2,h3{ font-family: Arial, Helvetica, sans-serif; text-wrap: balance; margin: 0; }
+  .num{ font-family: Arial, Helvetica, sans-serif; }
+  .tabular{ font-variant-numeric: tabular-nums; }
 
-  /* Header */
-  .header{background:linear-gradient(135deg,#12203a,#2a78d6);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-radius:10px;margin-bottom:14px;flex-wrap:wrap;gap:10px}
-  .header h1{font-size:18px;margin:0}
-  .header .sub{font-size:12px;opacity:.8;margin-top:2px}
-  .h-actions{display:flex;gap:8px;flex-wrap:wrap}
-  .h-btn{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff;padding:7px 12px;border-radius:7px;cursor:pointer;font-size:12px}
-  .h-btn:hover{background:rgba(255,255,255,.24)}
+  .report-header-bar{ background: linear-gradient(135deg, #1c2456, #10142c); width: 100%; position: sticky; top: 0; z-index: 30; }
+  .report-header-inner{
+    padding: 20px 28px;
+    display:flex; flex-wrap:wrap; justify-content: space-between; align-items:center; gap: 20px;
+  }
+  .report-header-left{ display:flex; align-items:center; gap: 14px; }
+  .report-icon{
+    width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
+    display:flex; align-items:center; justify-content:center; color: #fff;
+  }
+  .report-icon svg{ width: 26px; height: 26px; }
+  .report-title{ font-size: 25px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: #fff; }
+  .report-subtitle{ font-size: 14px; color: rgba(255,255,255,0.55); margin: 4px 0 0; }
+  .report-header-right{ display:flex; align-items:flex-end; gap: 14px; }
+  .report-meta-field{ display:flex; flex-direction:column; gap: 5px; }
+  .report-meta-label{ font-size: 11px; font-weight:600; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255,255,255,0.45); }
+  .report-meta-value{ font-size: 13px; color: #fff; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; padding: 7px 12px; }
+  .header-btn{
+    font-family:Arial,Helvetica,sans-serif; font-size: 12.5px; font-weight: 500; color: #fff;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px;
+    padding: 7px 12px; cursor:pointer; white-space:nowrap; height: fit-content;
+  }
+  .header-btn:hover{ background: rgba(255,255,255,0.16); }
+  .header-btn[aria-pressed="true"]{ background: #fff; color: #12172e; border-color: #fff; }
+  .header-icon-btn{
+    width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #fff;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .header-icon-btn:hover{ background: rgba(255,255,255,0.16); }
+  .header-icon-btn svg{ width: 16px; height: 16px; }
 
-  /* Settings bar */
-  #settingsBar{display:none;background:#12203a;padding:10px 20px;align-items:center;gap:12px;flex-wrap:wrap;border-radius:8px;margin-bottom:14px}
-  #settingsBar span{color:#fff;font-size:12px;font-weight:600}
-  #settingsBar select{padding:6px 10px;border:1px solid rgba(255,255,255,.3);border-radius:7px;background:rgba(255,255,255,.1);color:#fff;font-size:12px;min-width:220px}
-  #settingsBar select option{color:#0b0e14}
-  .btn-primary{padding:6px 14px;border:none;border-radius:7px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer}
-  .toggle-btn{padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-size:12px;cursor:pointer}
-  .toggle-btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  .role-switch{ display:flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 3px; gap: 2px; }
+  .role-switch button{
+    font-family:Arial,Helvetica,sans-serif; font-size: 12.5px; font-weight: 500; color: var(--text-secondary);
+    background: transparent; border: none; border-radius: 7px; padding: 7px 14px; cursor: pointer;
+  }
+  .role-switch button.active{ background: var(--surface); color: var(--accent); box-shadow: var(--shadow); font-weight: 600; }
+  .role-switch button:focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* KPI */
-  .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px}
-  .kpi{background:var(--surface);border-radius:10px;box-shadow:var(--shadow);padding:16px}
-  .kpi .label{font-size:12px;color:var(--text-secondary);margin-bottom:6px}
-  .kpi .value{font-size:24px;font-weight:700}
-  .kpi .sub{font-size:11px;color:var(--text-muted);margin-top:4px}
-  .kpi .value.critical{color:var(--status-critical)}
+  section{ margin-top: 48px; }
+  .wrap > section:first-of-type{ margin-top: 0; }
+  .section-head{ margin-bottom: 18px; }
+  .section-kicker{ font-family:Arial,Helvetica,sans-serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 6px; }
+  .section-title{ font-size: 20px; font-weight: 600; }
+  .section-sub{ font-size: 13.5px; color: var(--text-secondary); margin-top: 6px; max-width: 68ch; }
 
-  /* Cards */
-  .section-title{font-size:12px;font-weight:700;letter-spacing:.4px;color:var(--text-muted);text-transform:uppercase;margin:18px 0 8px}
-  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  @media(max-width:900px){.grid-2{grid-template-columns:1fr}}
-  .card{background:var(--surface);border-radius:10px;box-shadow:var(--shadow);padding:16px 18px}
-  .card h2{font-size:14px;margin:0 0 12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
-  .card h2 .card-actions{display:flex;gap:6px}
-  .card h2 button{font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer}
+  .kpi-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .kpi-tile{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 24px; box-shadow: var(--shadow); }
+  .kpi-label{ font-size: 13.5px; color: var(--text-muted); font-weight: 500; }
+  .kpi-value{ font-size: 30px; font-weight: 600; margin-top: 10px; letter-spacing: -0.01em; }
+  .kpi-value.critical{ color: var(--status-critical); }
+  .kpi-value.good{ color: var(--status-good); }
+  .kpi-sub{ font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
 
-  /* Bar rows */
-  .bar-row{display:grid;grid-template-columns:130px 1fr 100px;align-items:center;gap:8px;padding:5px 0}
-  .bar-label{font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .bar-track{background:var(--surface-2);border-radius:5px;height:16px;overflow:hidden}
-  .bar-fill{height:100%;border-radius:5px;min-width:2px}
-  .bar-value{font-size:12px;text-align:right;white-space:nowrap}
+  .chart-grid{ display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+  @media (max-width: 860px){ .chart-grid{ grid-template-columns: 1fr; } }
+  .chart-card{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); }
+  .chart-card.full{ grid-column: 1 / -1; }
+  .chart-head{ display:flex; justify-content: space-between; align-items:flex-start; gap: 12px; flex-wrap: wrap; }
+  .chart-title{ font-size: 15.5px; font-weight: 600; }
+  .chart-caption{ font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
+  .chart-controls{ display:flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; align-items: center; }
 
-  /* Detail table */
-  .tbl-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
-  .search-box{padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;width:200px}
-  .dtbl-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:8px}
-  table.d-table{width:100%;border-collapse:collapse;font-size:12px}
-  .d-table th{background:var(--surface-2);padding:7px 9px;text-align:left;font-weight:600;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--border);position:sticky;top:0;cursor:pointer;white-space:nowrap}
-  .d-table td{padding:6px 9px;border-bottom:1px solid var(--gridline);white-space:nowrap}
-  .d-table tr:hover td{background:var(--surface-2)}
+  .btn{ font-family:Arial,Helvetica,sans-serif; font-size: 12px; font-weight: 500; color: var(--text-secondary);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 11px; cursor: pointer; white-space: nowrap; }
+  .btn:hover{ border-color: var(--border-strong); color: var(--text-primary); }
+  .btn:focus-visible, .bar-row:focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn[aria-pressed="true"]{ background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .btn-icon{ display:inline-flex; align-items:center; justify-content:center; width: 30px; height: 30px; padding: 0; }
+  .btn-icon svg{ width: 16px; height: 16px; display:block; }
 
-  #tooltip{position:fixed;display:none;background:#12203a;color:#fff;padding:8px 10px;border-radius:6px;font-size:11px;pointer-events:none;z-index:50;max-width:260px}
-  #tooltip.show{display:block}
-  .tt-row{display:flex;justify-content:space-between;gap:12px}
-  .tt-title{font-weight:700;margin-bottom:4px}
+  .legend{ display:flex; gap: 16px; flex-wrap: wrap; margin: 14px 0 6px; font-size: 12.5px; color: var(--text-secondary); }
+  .legend .item{ display:flex; align-items:center; gap: 6px; }
+  .legend .swatch{ width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
 
-  .empty-state{display:none;text-align:center;padding:60px 20px;color:var(--text-muted)}
+  .bars{ margin-top: 14px; display:flex; flex-direction: column; gap: 3px; }
+  .bar-row{ display:grid; grid-template-columns: var(--label-w, 168px) 1fr auto; align-items: center; gap: 10px; padding: 6px 0; border-radius: 6px; cursor: default; }
+  .bar-row:hover{ background: var(--surface-2); }
+  .bar-label{ font-size: 12.5px; color: var(--text-secondary); text-align: right; line-height:1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-label .tag{ display:inline-block; margin-left: 5px; font-size: 10px; font-weight: 500; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
+  .bar-track{ position: relative; height: 18px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
+  .bar-fill{ position:absolute; left:0; top:0; height:100%; border-radius: 4px; min-width: 3px; }
+  .bar-stack{ position:absolute; left:0; top:0; height:100%; display:flex; gap:2px; border-radius: 4px; overflow:hidden; }
+  .bar-seg{ height:100%; min-width:2px; }
+  .bar-value{ font-size: 12.5px; font-weight: 500; color: var(--text-primary); min-width: 108px; white-space: nowrap; }
+  .bar-value .sub{ color: var(--text-muted); font-weight: 400; margin-left: 6px; }
+  .bar-value .flag-critical{ color: var(--status-critical); font-weight: 600; }
+
+  table.data-table{ width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 14px; }
+  table.data-table th, table.data-table td{ padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: right; }
+  table.data-table th:first-child, table.data-table td:first-child{ text-align: left; }
+  table.data-table th{ color: var(--text-muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  table.data-table td{ color: var(--text-secondary); }
+  table.data-table tr:hover td{ background: var(--surface-2); color: var(--text-primary); }
+  .table-wrap{ overflow-x: auto; }
+  .table-view[hidden]{ display:none; }
+
+  #tooltip{ position: fixed; z-index: 50; pointer-events:none; opacity:0; transition: opacity .1s ease; background: var(--text-primary); color: var(--bg); font-size: 12px; line-height:1.5; padding: 8px 11px; border-radius: 8px; max-width: 260px; box-shadow: var(--shadow); }
+  #tooltip.show{ opacity: 1; }
+  #tooltip .tt-title{ font-weight: 600; margin-bottom: 3px; }
+  #tooltip .tt-row{ display:flex; justify-content: space-between; gap: 12px; opacity: 0.85; }
+
+  /* Extension-only chrome: settings bar, loading, error, empty state */
+  #settingsBar{ display:none; background: var(--surface-2); border-bottom: 1px solid var(--border); padding: 10px 28px; align-items:center; gap: 12px; flex-wrap: wrap; }
+  #settingsBar span{ font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+  #settingsBar select{ padding: 6px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-primary); font-size: 12.5px; min-width: 220px; }
+
+  .loading-overlay{ display:none; text-align:center; padding: 80px 20px; color: var(--text-secondary); }
+  .loading-overlay .spinner{ display:inline-block; width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin-bottom: 10px; }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+  .error-banner{ display:none; background: var(--status-critical-bg); border: 1px solid var(--status-critical); border-radius: 10px; padding: 12px 20px; margin: 16px 28px 0; color: var(--status-critical); font-size: 13px; }
+  .error-banner button{ float:right; cursor:pointer; font-weight:700; background:none; border:none; color: var(--status-critical); font-size: 14px; }
+  .empty-state{ display:none; text-align:center; padding: 80px 20px; color: var(--text-muted); font-size: 13.5px; }
+
+  [data-role="vendor"] .admin-only{ display:none; }
+  [data-role="admin"] .vendor-only{ display:none; }
+
+  @media (max-width: 640px){
+    .bar-row{ grid-template-columns: var(--label-w-mobile, 108px) 1fr auto; }
+    .bar-label{ font-size: 11.5px; }
+    .report-title{ font-size: 17px; }
+    .report-header-inner{ align-items: flex-start; }
+    .report-header-right{ align-items: flex-start; }
+  }
 </style>
 </head>
 <body>
+<div class="report-header-bar">
+  <div class="report-header-inner">
+    <div class="report-header-left">
+      <div class="report-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      </div>
+      <div>
+        <h1 class="report-title" id="reportTitle">Vendor Stock Portal</h1>
+        <p class="report-subtitle">Reads a Tableau worksheet directly</p>
+      </div>
+    </div>
+    <div class="report-header-right">
+      <button class="header-btn" id="excludeDcBtn" style="display:none" aria-pressed="false">ไม่รวม DC</button>
+      <button class="header-btn" id="settingsToggle">Settings</button>
+      <button class="header-icon-btn" id="fullExportBtn" aria-label="Export" title="Export (.xls, multi-sheet)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+      <div class="report-meta-field">
+        <span class="report-meta-label">Loaded</span>
+        <span class="report-meta-value tabular" id="metaSnapshot">–</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="settingsBar">
+  <span>Worksheet:</span>
+  <select id="worksheetSelect"><option>-- select worksheet --</option></select>
+  <button class="btn" id="loadDataBtn" style="background:var(--accent);color:#fff;border-color:var(--accent)">Load data</button>
+  <button class="btn" id="settingsClose" style="margin-left:auto">Close</button>
+</div>
+
+<div class="error-banner" id="errorBanner">
+  <button id="errorCloseBtn">&times;</button>
+  <span id="errorText"></span>
+</div>
 
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner"></div>
   <p id="loadingText">กำลังโหลดข้อมูลจาก Tableau...</p>
 </div>
 
-<div class="wrap">
+<div class="empty-state" id="emptyState">
+  Select a worksheet in Settings and click "Load data" to get started.<br>
+  Required columns: BRANCH, ARTICLE_ID, UR_AMT (or UR_COST_AMT), UR_QTY, and either CLASS_STOCK or AGING_TIER/AGING.
+</div>
 
-  <div class="header">
-    <div>
-      <h1 id="reportTitle">Vendor Stock Portal</h1>
-      <div class="sub">Stock aging &amp; branch distribution — reads a Tableau worksheet directly</div>
+<div class="wrap" id="dashboard" style="display:none">
+
+  <section id="kpi">
+    <div class="kpi-grid">
+      <div class="kpi-tile"><div class="kpi-label">Total Stock Value</div><div class="kpi-value num tabular" id="kpiValue">–</div><div class="kpi-sub" id="kpiValueSub">–</div></div>
+      <div class="kpi-tile"><div class="kpi-label">UR_QTY</div><div class="kpi-value num tabular" id="kpiQty">–</div><div class="kpi-sub">total quantity</div></div>
+      <div class="kpi-tile"><div class="kpi-label">SKU Count</div><div class="kpi-value num tabular" id="kpiSku">–</div><div class="kpi-sub">distinct ARTICLE_ID</div></div>
+      <div class="kpi-tile"><div class="kpi-label">Dead Stock Value</div><div class="kpi-value num tabular critical" id="kpiDead">–</div><div class="kpi-sub" id="kpiDeadSub">–</div></div>
+      <div class="kpi-tile"><div class="kpi-label">Aging &gt; 180 Days</div><div class="kpi-value num tabular" id="kpiAging180">–</div><div class="kpi-sub" id="kpiAging180Sub">–</div></div>
     </div>
-    <div class="h-actions">
-      <button class="h-btn" id="exportCsvBtn">Export SKU CSV</button>
-      <button class="h-btn" id="excludeDcBtn" style="display:none" aria-pressed="false">Exclude DC</button>
-      <button class="h-btn" id="settingsToggle">Settings</button>
+  </section>
+
+  <section id="aging">
+    <div class="section-head">
+      <p class="section-kicker">01 — Stock Aging</p>
     </div>
-  </div>
-
-  <div id="settingsBar">
-    <span>Worksheet:</span>
-    <select id="worksheetSelect"><option>-- select worksheet --</option></select>
-    <button class="btn-primary" id="loadDataBtn">Load data</button>
-    <button class="h-btn" id="settingsClose" style="margin-left:auto">Close</button>
-  </div>
-
-  <div class="error-banner" id="errorBanner">
-    <button id="errorCloseBtn">&times;</button>
-    <span id="errorText"></span>
-  </div>
-
-  <div class="empty-state" id="emptyState">
-    Select a worksheet in Settings and click "Load data" to get started.<br>
-    Required columns: BRANCH, ARTICLE_ID, UR_AMT (or UR_COST_AMT), UR_QTY, and either CLASS_STOCK or AGING_TIER/AGING.
-  </div>
-
-  <div id="dashboard" style="display:none">
-
-    <div class="kpi-row">
-      <div class="kpi"><div class="label">Total Stock Value</div><div class="value" id="kpiValue">-</div></div>
-      <div class="kpi"><div class="label">SKU Count</div><div class="value" id="kpiSku">-</div><div class="sub">distinct ARTICLE_ID</div></div>
-      <div class="kpi"><div class="label">Branches</div><div class="value" id="kpiBranches">-</div></div>
-      <div class="kpi"><div class="label">Dead Stock Value</div><div class="value critical" id="kpiDead">-</div><div class="sub" id="kpiDeadSub"></div></div>
-      <div class="kpi"><div class="label">Aging &gt; 180 Days</div><div class="value critical" id="kpiAging180">-</div><div class="sub" id="kpiAging180Sub"></div></div>
-    </div>
-
-    <div class="section-title">Stock aging</div>
-    <div class="grid-2">
-      <div class="card">
-        <h2>Value by aging tier</h2>
-        <div id="agingChart"></div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div><div class="chart-title">มูลค่าสต็อกตามช่วงอายุ (Aging Tier)</div></div>
+          <div class="chart-controls"><button class="btn" data-toggle-table="agingChart">View table</button></div>
+        </div>
+        <div class="bars" id="agingChart"></div>
+        <div class="table-wrap table-view" id="agingChart-table" hidden></div>
       </div>
-      <div class="card">
-        <h2>Value by class &times; aging bucket</h2>
-        <div id="classAgingChart"></div>
+      <div class="chart-card">
+        <div class="chart-head">
+          <div><div class="chart-title">มูลค่าสต็อก (Class × Aging Tier)</div></div>
+          <div class="chart-controls"><button class="btn" data-toggle-table="classChart">View table</button></div>
+        </div>
+        <div class="legend" id="classAgingLegend"></div>
+        <div class="bars" id="classChart"></div>
+        <div class="table-wrap table-view" id="classChart-table" hidden></div>
       </div>
     </div>
+  </section>
 
-    <div class="section-title">Stock by branch</div>
-    <div class="card">
-      <h2>
-        <span>Value by branch</span>
-        <span class="card-actions">
-          <button class="toggle-btn" id="metricAmtBtn" aria-pressed="true">UR_AMT</button>
-          <button class="toggle-btn" id="metricQtyBtn" aria-pressed="false">UR_QTY</button>
-        </span>
-      </h2>
-      <div id="branchChart"></div>
+  <section id="branch">
+    <div class="section-head">
+      <p class="section-kicker">02 — Stock by Branch</p>
+    </div>
+    <div class="chart-card full">
+      <div class="chart-head">
+        <div><div class="chart-title" id="branchChartTitle">มูลค่าสต็อกตามสาขา</div></div>
+        <div class="chart-controls">
+          <div class="role-switch" role="group" aria-label="Switch metric">
+            <button class="btn-metric active" id="metricAmtBtn" aria-pressed="true">UR_AMT</button>
+            <button class="btn-metric" id="metricQtyBtn" aria-pressed="false">UR_QTY</button>
+          </div>
+          <button class="btn" data-toggle-table="branchChart">View table</button>
+          <button class="btn btn-icon" id="branchChartExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+        </div>
+      </div>
+      <div class="bars" id="branchChart"></div>
+      <div class="table-wrap table-view" id="branchChart-table" hidden></div>
+    </div>
+  </section>
+
+  <section id="turnover" style="display:none">
+    <div class="section-head">
+      <p class="section-kicker">03 — Stock Turnover</p>
+      <p class="section-sub">Turnover (days of supply) = UR_QTY ÷ average daily quantity sold.</p>
+    </div>
+    <div class="chart-card full">
+      <div class="chart-head">
+        <div><div class="chart-title" id="vBranchTOTitle">มูลค่า จำนวน และ Turnover ตามสาขา</div></div>
+        <div class="chart-controls">
+          <div role="group" aria-label="Toggle breakdown dimensions" style="display:flex;gap:6px;">
+            <button class="btn" id="vBranchDimBranch" aria-pressed="true">สาขา</button>
+            <button class="btn" id="vBranchDimMch3" aria-pressed="false">MCH3</button>
+            <button class="btn" id="vBranchDimBrand" aria-pressed="false">Brand</button>
+          </div>
+          <button class="btn" data-toggle-table="vBranchTOChart">View table</button>
+          <button class="btn btn-icon" id="vBranchTOExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+        </div>
+      </div>
+      <div class="bars" id="vBranchTOChart"></div>
+      <div class="table-wrap table-view" id="vBranchTOChart-table" hidden></div>
     </div>
 
-    <div class="section-title">SKU detail</div>
-    <div class="card">
-      <div class="tbl-controls">
-        <input class="search-box" id="searchBox" placeholder="Search article / branch / brand...">
-        <span id="rowCount" style="font-size:12px;color:var(--text-muted)"></span>
+    <div class="chart-card full" style="margin-top:16px">
+      <div class="chart-head">
+        <div><div class="chart-title">มูลค่า จำนวน และ Turnover ตาม MC</div></div>
+        <div class="chart-controls">
+          <div role="group" aria-label="Toggle breakdown columns" style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn" id="mcDimMch3" aria-pressed="true">MCH3</button>
+            <button class="btn" id="mcDimMch2" aria-pressed="false">MCH2</button>
+            <button class="btn" id="mcDimMch1" aria-pressed="false">MCH1</button>
+            <button class="btn" id="mcDimMc" aria-pressed="false">MC</button>
+            <button class="btn" id="mcDimBrand" aria-pressed="false">Brand</button>
+            <button class="btn" id="mcDimClassStock" aria-pressed="false">CLASS_STOCK</button>
+          </div>
+          <button class="btn btn-icon" id="mchExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+        </div>
       </div>
-      <div class="dtbl-wrap">
-        <table class="d-table">
+      <div class="table-wrap" id="mchFlatTableWrap"></div>
+    </div>
+  </section>
+
+  <section id="skuDetail">
+    <div class="section-head">
+      <p class="section-kicker">04 — SKU Detail</p>
+    </div>
+    <div class="chart-card full">
+      <div class="chart-head">
+        <div><div class="chart-title">รายละเอียดระดับ SKU (<span id="rowCount">0</span>)</div></div>
+        <div class="chart-controls">
+          <input id="searchBox" placeholder="Search article / branch / brand..." style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;width:200px;background:var(--surface);color:var(--text-primary)">
+          <button class="btn btn-icon" id="exportCsvBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+        </div>
+      </div>
+      <div class="table-wrap" style="max-height:420px;overflow-y:auto">
+        <table class="data-table">
           <thead>
             <tr>
-              <th data-col="branch">Branch</th>
-              <th data-col="articleId">Article ID</th>
-              <th data-col="articleName">Article name</th>
-              <th data-col="brand">Brand</th>
-              <th data-col="mch3">MCH3</th>
-              <th data-col="classStock">Class</th>
-              <th data-col="agingTier">Aging tier</th>
+              <th style="text-align:left" data-col="branch">Branch</th>
+              <th style="text-align:left" data-col="articleId">Article ID</th>
+              <th style="text-align:left" data-col="articleName">Article name</th>
+              <th style="text-align:left" data-col="brand">Brand</th>
+              <th style="text-align:left" data-col="mch3">MCH3</th>
+              <th style="text-align:left" data-col="classStock">Class</th>
+              <th style="text-align:left" data-col="agingTier">Aging tier</th>
               <th data-col="urQty">UR_QTY</th>
               <th data-col="urAmt">UR_AMT</th>
             </tr>
@@ -181,8 +374,7 @@
         </table>
       </div>
     </div>
-
-  </div>
+  </section>
 
 </div>
 

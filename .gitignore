@@ -1,5 +1,6 @@
 node_modules/
 package-lock.json
+.DS_Store
 
 # Real business data - never commit these
 analytics_report.html
