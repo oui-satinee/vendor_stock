@@ -43,24 +43,37 @@ If `AGING_TIER` isn't in the source, the extension buckets the numeric `AGING`
 (days) column into the same 8 tiers as the legacy report
 (0–60, 61–90, 91–120, 121–150, 151–180, 181–270, 271–360, >361 days).
 
+### Production (GitHub Pages) — current default
+
+`VendorStockPortal.trex` points at the published GitHub Pages URL:
+
+```
+https://oui-satinee.github.io/vendor_stock/vendor_stock_portal.html
+```
+
+GitHub Pages is already enabled for this repo (Settings → Pages → branch
+`main` / root). This works from any machine with Tableau Desktop — no local
+server needed. In Tableau Desktop: open a workbook with vendor stock data →
+build a dashboard containing that worksheet → **Objects → Extensions** → pick
+`VendorStockPortal.trex` → in the extension's **Settings** panel, select the
+worksheet and click **Load data**.
+
+**Caveat:** every push to `main` updates the live Pages URL (usually within a
+minute). Re-adding the extension always fetches the latest version — there's
+no version pinning.
+
 ### Development (localhost)
+
+To iterate on the extension itself without publishing every change:
 
 1. Serve this folder locally:
    ```bash
    npx http-server -p 8765 --cors
    ```
-2. `VendorStockPortal.trex` already points at `http://localhost:8765/vendor_stock_portal.html` — no edits needed for local testing.
-3. In Tableau Desktop: open a workbook with vendor stock data → build a dashboard containing that worksheet → **Objects → Extensions** → pick `VendorStockPortal.trex`.
-4. In the extension's **Settings** panel, select the worksheet and click **Load data**.
-
-### Production (GitHub Pages)
-
-1. Enable GitHub Pages for this repo (Settings → Pages → branch `main` / root).
-2. Edit the `<url>` in `VendorStockPortal.trex` to the published Pages URL, e.g.
-   ```
-   https://oui-satinee.github.io/vendor_stock/vendor_stock_portal.html
-   ```
-3. Re-import the updated `.trex` into the dashboard.
+2. Temporarily edit the `<url>` in `VendorStockPortal.trex` back to
+   `http://localhost:8765/vendor_stock_portal.html`.
+3. Re-import the `.trex` into the dashboard, iterate, then revert the URL to
+   the GitHub Pages one (and push) when done.
 
 ### Features
 
