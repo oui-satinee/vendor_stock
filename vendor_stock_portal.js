@@ -199,12 +199,12 @@
 
   // ─── UI helpers ───────────────────────────────────────────
   function showLoading(msg) {
-    document.getElementById("loadingOverlay").style.display = "";
+    document.getElementById("loadingOverlay").style.display = "block";
     document.getElementById("loadingText").textContent = msg || "กำลังโหลดข้อมูลจาก Tableau...";
   }
   function hideLoading() { document.getElementById("loadingOverlay").style.display = "none"; }
   function showError(msg) {
-    document.getElementById("errorBanner").style.display = "";
+    document.getElementById("errorBanner").style.display = "block";
     document.getElementById("errorText").textContent = msg;
   }
   function hideError() { document.getElementById("errorBanner").style.display = "none"; }
@@ -357,7 +357,7 @@
     var records = activeData();
     if (records.length === 0) {
       document.getElementById("dashboard").style.display = "none";
-      document.getElementById("emptyState").style.display = "";
+      document.getElementById("emptyState").style.display = "block";
       document.getElementById("emptyState").textContent = "No rows match the current filter/exclude-DC selection.";
       return;
     }
@@ -644,7 +644,12 @@
       attachEvents();
     }).catch(function (err) {
       console.error("Tableau init failed:", err);
-      showError("Could not connect to Tableau: " + (err.message || err));
+      var msg = (err && err.message) || String(err);
+      if (msg.indexOf("not running inside") !== -1) {
+        showError("This page is a Tableau Dashboard Extension — it only runs inside Tableau, not as a standalone webpage. Open it via Objects → Extensions → VendorStockPortal.trex on a Tableau dashboard.");
+      } else {
+        showError("Could not connect to Tableau: " + msg);
+      }
     });
   }
 
