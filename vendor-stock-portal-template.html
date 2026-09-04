@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vendor Stock Portal</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg: #f5f7fa;
+    --surface: #ffffff;
+    --surface-2: #eef1f6;
+    --surface-3: #f7f9fc;
+    --border: rgba(11,14,20,0.10);
+    --border-strong: rgba(11,14,20,0.16);
+    --text-primary: #0b0e14;
+    --text-secondary: #4b5566;
+    --text-muted: #838b99;
+    --accent: #2a78d6;
+    --accent-soft: rgba(42,120,214,0.12);
+    --accent-violet: #4a3aa7;
+    --status-critical: #d03b3b;
+    --status-critical-bg: rgba(208,59,59,0.10);
+    --status-good: #0ca30c;
+    --status-good-bg: rgba(12,163,12,0.10);
+    --status-warning: #fab219;
+    --status-warning-bg: rgba(250,178,25,0.14);
+    --gridline: #e3e7ee;
+    --baseline: #c7ccd6;
+    --seq-1: #86b6ef; --seq-2: #6da7ec; --seq-3: #5598e7; --seq-4: #3987e5;
+    --seq-5: #2a78d6; --seq-6: #256abf; --seq-7: #1c5cab; --seq-8: #184f95;
+    --shadow: 0 1px 2px rgba(11,14,20,0.04), 0 8px 24px rgba(11,14,20,0.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --bg: #0d0f12; --surface: #15181d; --surface-2: #1c2027; --surface-3: #191d23;
+      --border: rgba(255,255,255,0.10); --border-strong: rgba(255,255,255,0.18);
+      --text-primary: #ffffff; --text-secondary: #c3c8d1; --text-muted: #8a8f9c;
+      --accent: #3987e5; --accent-soft: rgba(57,135,229,0.16); --accent-violet: #9085e9;
+      --status-critical: #e66767; --status-critical-bg: rgba(230,103,103,0.15);
+      --status-good: #0ca30c; --status-good-bg: rgba(12,163,12,0.16);
+      --status-warning: #fab219; --status-warning-bg: rgba(250,178,25,0.14);
+      --gridline: #2c3038; --baseline: #383a42;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg: #0d0f12; --surface: #15181d; --surface-2: #1c2027; --surface-3: #191d23;
+    --border: rgba(255,255,255,0.10); --border-strong: rgba(255,255,255,0.18);
+    --text-primary: #ffffff; --text-secondary: #c3c8d1; --text-muted: #8a8f9c;
+    --accent: #3987e5; --accent-soft: rgba(57,135,229,0.16); --accent-violet: #9085e9;
+    --status-critical: #e66767; --status-critical-bg: rgba(230,103,103,0.15);
+    --status-good: #0ca30c; --status-good-bg: rgba(12,163,12,0.16);
+    --gridline: #2c3038; --baseline: #383a42;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--bg); color: var(--text-primary);
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  .wrap{ max-width: 1600px; margin: 0 auto; padding: 16px 24px 20px; }
+  h1,h2,h3{ font-family: Arial, Helvetica, sans-serif; text-wrap: balance; margin: 0; }
+  .num{ font-family: Arial, Helvetica, sans-serif; }
+  .tabular{ font-variant-numeric: tabular-nums; }
+
+  .report-header-bar{ background: linear-gradient(135deg, #1c2456, #10142c); width: 100%; position: sticky; top: 0; z-index: 30; }
+  .report-header-inner{
+    padding: 20px 28px;
+    display:flex; flex-wrap:wrap; justify-content: space-between; align-items:center; gap: 20px;
+  }
+  .report-header-left{ display:flex; align-items:center; gap: 14px; }
+  .report-icon{
+    width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
+    display:flex; align-items:center; justify-content:center; color: #fff;
+  }
+  .report-icon svg{ width: 26px; height: 26px; }
+  .report-title{ font-size: 25px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: #fff; }
+  .report-subtitle{ font-size: 14px; color: rgba(255,255,255,0.55); margin: 4px 0 0; }
+  .report-header-right{ display:flex; align-items:flex-end; gap: 14px; }
+  .report-meta-field{ display:flex; flex-direction:column; gap: 5px; }
+  .report-meta-label{ font-size: 11px; font-weight:600; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255,255,255,0.45); }
+  .report-meta-value{ font-size: 13px; color: #fff; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; padding: 7px 12px; }
+  .header-btn{
+    font-family:Arial,Helvetica,sans-serif; font-size: 12.5px; font-weight: 500; color: #fff;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px;
+    padding: 7px 12px; cursor:pointer; white-space:nowrap; height: fit-content;
+  }
+  .header-btn:hover{ background: rgba(255,255,255,0.16); }
+  .header-btn[aria-pressed="true"]{ background: #fff; color: #12172e; border-color: #fff; }
+  .header-icon-btn{
+    width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #fff;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .header-icon-btn:hover{ background: rgba(255,255,255,0.16); }
+  .header-icon-btn svg{ width: 16px; height: 16px; }
+
+  .role-switch{ display:flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 3px; gap: 2px; }
+  .role-switch button{
+    font-family:Arial,Helvetica,sans-serif; font-size: 12.5px; font-weight: 500; color: var(--text-secondary);
+    background: transparent; border: none; border-radius: 7px; padding: 7px 14px; cursor: pointer;
+  }
+  .role-switch button.active{ background: var(--surface); color: var(--accent); box-shadow: var(--shadow); font-weight: 600; }
+  .role-switch button:focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  section{ margin-top: 48px; }
+  .wrap > section:first-of-type{ margin-top: 0; }
+  .section-head{ margin-bottom: 18px; }
+  .section-kicker{ font-family:Arial,Helvetica,sans-serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 6px; }
+  .section-title{ font-size: 20px; font-weight: 600; }
+  .section-sub{ font-size: 13.5px; color: var(--text-secondary); margin-top: 6px; max-width: 68ch; }
+
+  .kpi-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .kpi-tile{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 24px; box-shadow: var(--shadow); }
+  .kpi-label{ font-size: 13.5px; color: var(--text-muted); font-weight: 500; }
+  .kpi-value{ font-size: 30px; font-weight: 600; margin-top: 10px; letter-spacing: -0.01em; }
+  .kpi-value.critical{ color: var(--status-critical); }
+  .kpi-value.good{ color: var(--status-good); }
+  .kpi-sub{ font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
+
+  .chart-grid{ display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+  @media (max-width: 860px){ .chart-grid{ grid-template-columns: 1fr; } }
+  .chart-card{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); }
+  .chart-card.full{ grid-column: 1 / -1; }
+  .chart-head{ display:flex; justify-content: space-between; align-items:flex-start; gap: 12px; }
+  .chart-title{ font-size: 15.5px; font-weight: 600; }
+  .chart-caption{ font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
+  .chart-controls{ display:flex; gap: 8px; flex-shrink: 0; }
+
+  .btn{ font-family:Arial,Helvetica,sans-serif; font-size: 12px; font-weight: 500; color: var(--text-secondary);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 6px 11px; cursor: pointer; white-space: nowrap; }
+  .btn:hover{ border-color: var(--border-strong); color: var(--text-primary); }
+  .btn:focus-visible, .bar-row:focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn[aria-pressed="true"]{ background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .btn-icon{ display:inline-flex; align-items:center; justify-content:center; width: 30px; height: 30px; padding: 0; }
+  .btn-icon svg{ width: 16px; height: 16px; display:block; }
+
+  .legend{ display:flex; gap: 16px; flex-wrap: wrap; margin: 14px 0 6px; font-size: 12.5px; color: var(--text-secondary); }
+  .legend .item{ display:flex; align-items:center; gap: 6px; }
+  .legend .swatch{ width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+  .bars{ margin-top: 14px; display:flex; flex-direction: column; gap: 3px; }
+  .bar-row{ display:grid; grid-template-columns: var(--label-w, 168px) 1fr auto; align-items: center; gap: 10px; padding: 6px 0; border-radius: 6px; cursor: default; }
+  .bar-row:hover{ background: var(--surface-2); }
+  .bar-label{ font-size: 12.5px; color: var(--text-secondary); text-align: right; line-height:1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-label .tag{ display:inline-block; margin-left: 5px; font-size: 10px; font-weight: 500; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
+  .bar-track{ position: relative; height: 18px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
+  .bar-fill{ position:absolute; left:0; top:0; height:100%; border-radius: 4px; min-width: 3px; }
+  .bar-stack{ position:absolute; left:0; top:0; height:100%; display:flex; gap:2px; border-radius: 4px; overflow:hidden; }
+  .bar-seg{ height:100%; min-width:2px; }
+  .bar-value{ font-size: 12.5px; font-weight: 500; color: var(--text-primary); min-width: 108px; white-space: nowrap; }
+  .bar-value .sub{ color: var(--text-muted); font-weight: 400; margin-left: 6px; }
+  .bar-value .flag-critical{ color: var(--status-critical); font-weight: 600; }
+
+
+  .risk-badge{ display:inline-flex; align-items:center; justify-content:center; width: 14px; height:14px; border-radius: 50%; background: var(--status-critical); color: #fff; font-size: 10px; font-weight: 700; margin-right: 4px; flex-shrink: 0; }
+
+  table.data-table{ width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 14px; }
+  table.data-table th, table.data-table td{ padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: right; }
+  table.data-table th:first-child, table.data-table td:first-child{ text-align: left; }
+  table.data-table th{ color: var(--text-muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  table.data-table td{ color: var(--text-secondary); }
+  table.data-table tr:hover td{ background: var(--surface-2); color: var(--text-primary); }
+  .table-wrap{ overflow-x: auto; }
+  .table-view[hidden]{ display:none; }
+
+  #tooltip{ position: fixed; z-index: 50; pointer-events:none; opacity:0; transition: opacity .1s ease; background: var(--text-primary); color: var(--bg); font-size: 12px; line-height:1.5; padding: 8px 11px; border-radius: 8px; max-width: 260px; box-shadow: var(--shadow); }
+  #tooltip.show{ opacity: 1; }
+  #tooltip .tt-title{ font-weight: 600; margin-bottom: 3px; }
+  #tooltip .tt-row{ display:flex; justify-content: space-between; gap: 12px; opacity: 0.85; }
+
+  [data-role="vendor"] .admin-only{ display:none; }
+  [data-role="admin"] .vendor-only{ display:none; }
+
+  @media (max-width: 640px){
+    .bar-row{ grid-template-columns: var(--label-w-mobile, 108px) 1fr auto; }
+    .bar-label{ font-size: 11.5px; }
+    .report-title{ font-size: 17px; }
+    .report-header-inner{ align-items: flex-start; }
+    .report-header-right{ align-items: flex-start; }
+  }
+</style>
+</head>
+<body data-role="vendor">
+<div class="report-header-bar">
+  <div class="report-header-inner">
+    <div class="report-header-left">
+      <div class="report-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      </div>
+      <div>
+        <h1 class="report-title" id="reportTitle">–</h1>
+        <p class="report-subtitle">Vendor Stock Portal</p>
+      </div>
+    </div>
+    <div class="report-header-right">
+      <button class="header-btn" id="globalDcToggle" aria-pressed="false">ไม่รวม DC</button>
+      <button class="header-icon-btn" id="fullExportBtn" aria-label="Export" title="Export (.xls, multi-sheet)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+      <div class="report-meta-field">
+        <span class="report-meta-label">Snapshot date</span>
+        <span class="report-meta-value tabular" id="metaSnapshot">2026-09-02</span>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="wrap">
+
+  <section id="kpi">
+    <div class="kpi-grid">
+      <div class="kpi-tile"><div class="kpi-label" id="kpiValueLabel">Total Stock Value</div><div class="kpi-value num tabular" id="kpiValue">–</div><div class="kpi-sub" id="kpiValueSub">–</div></div>
+      <div class="kpi-tile"><div class="kpi-label" id="kpiThirdLabel">Branches</div><div class="kpi-value num tabular" id="kpiThird">–</div><div class="kpi-sub" id="kpiThirdSub">–</div></div>
+      <div class="kpi-tile"><div class="kpi-label">SKU Count</div><div class="kpi-value num tabular" id="kpiSku">–</div><div class="kpi-sub" id="kpiSkuSub">distinct article_id</div></div>
+      <div class="kpi-tile"><div class="kpi-label">Dead Stock Value</div><div class="kpi-value num tabular critical" id="kpiDead">–</div><div class="kpi-sub" id="kpiDeadSub">–</div></div>
+      <div class="kpi-tile"><div class="kpi-label">Aging &gt; 180 Days</div><div class="kpi-value num tabular" id="kpiAging180">–</div><div class="kpi-sub" id="kpiAging180Sub">–</div></div>
+    </div>
+  </section>
+
+  <section id="aging">
+    <div class="section-head">
+      <p class="section-kicker">01 — Stock Aging</p>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div><div class="chart-title">มูลค่าสต็อกตามช่วงอายุ (Aging Tier)</div></div>
+          <div class="chart-controls"><button class="btn" data-toggle-table="agingChart">View table</button></div>
+        </div>
+        <div class="bars" id="agingChart"></div>
+        <div class="table-wrap table-view" id="agingChart-table" hidden></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head">
+          <div><div class="chart-title">มูลค่าสต็อก (Class × Aging Tier)</div></div>
+          <div class="chart-controls"><button class="btn" data-toggle-table="classChart">View table</button></div>
+        </div>
+        <div class="legend" id="classAgingLegend"></div>
+        <div class="bars" id="classChart"></div>
+        <div class="table-wrap table-view" id="classChart-table" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="branch">
+    <div class="section-head">
+      <p class="section-kicker">02 — Stock by Branch</p>
+    </div>
+    <div class="chart-card full">
+      <div class="chart-head">
+        <div><div class="chart-title" id="branchChartTitle">มูลค่าสต็อกตามสาขา</div></div>
+        <div class="chart-controls">
+          <div class="role-switch" role="group" aria-label="Switch metric">
+            <button class="btn-metric active" id="metricAmtBtn" aria-pressed="true">UR_AMT</button>
+            <button class="btn-metric" id="metricQtyBtn" aria-pressed="false">UR_QTY</button>
+          </div>
+          <button class="btn" data-toggle-table="branchChart">View table</button>
+          <button class="btn btn-icon" id="branchChartExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+        </div>
+      </div>
+      <div class="bars" id="branchChart"></div>
+      <div class="table-wrap table-view" id="branchChart-table" hidden></div>
+    </div>
+  </section>
+
+  <section id="turnoverVendor" class="vendor-only">
+    <div class="section-head">
+      <p class="section-kicker">03 — Stock Turnover</p>
+    </div>
+    <div class="chart-card full">
+      <div class="chart-head">
+        <div><div class="chart-title" id="vBranchTOTitle">มูลค่า จำนวน และ Turnover ตามสาขา</div><div class="chart-caption" id="vBranchTOCaption"></div></div>
+        <div class="chart-controls">
+          <div role="group" aria-label="Toggle breakdown dimensions" style="display:flex;gap:6px;">
+            <button class="btn" id="vBranchDimBranch" aria-pressed="true">สาขา</button>
+            <button class="btn" id="vBranchDimMch3" aria-pressed="false">MCH3</button>
+            <button class="btn" id="vBranchDimBrand" aria-pressed="false">Brand</button>
+          </div>
+          <button class="btn" data-toggle-table="vBranchTOChart">View table</button>
+          <button class="btn btn-icon" id="vBranchTOExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+        </div>
+      </div>
+      <div class="bars" id="vBranchTOChart"></div>
+      <div class="table-wrap table-view" id="vBranchTOChart-table" hidden></div>
+    </div>
+
+    <div class="chart-card full" style="margin-top:16px">
+      <div class="chart-head">
+        <div>
+          <div class="chart-title">มูลค่า จำนวน และ Turnover ตาม MC</div>
+        </div>
+        <div class="chart-controls">
+          <div role="group" aria-label="Toggle breakdown columns" style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn" id="mcDimMch3" aria-pressed="true">MCH3</button>
+            <button class="btn" id="mcDimMch2" aria-pressed="false">MCH2</button>
+            <button class="btn" id="mcDimMch1" aria-pressed="false">MCH1</button>
+            <button class="btn" id="mcDimMc" aria-pressed="false">MC</button>
+            <button class="btn" id="mcDimBrand" aria-pressed="false">Brand</button>
+            <button class="btn" id="mcDimClassStock" aria-pressed="false">CLASS_STOCK</button>
+          </div>
+          <button class="btn btn-icon" id="mchExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+        </div>
+      </div>
+      <div class="table-wrap" id="mchFlatTableWrap"></div>
+    </div>
+  </section>
+
+  <section id="turnover" class="admin-only">
+    <div class="section-head">
+      <p class="section-kicker">03 — Stock Turnover</p>
+      <h2 class="section-title">อัตราหมุนสต็อกและความเสี่ยงตาม Vendor</h2>
+      <p class="section-sub">Source: <code>ds_rbv_stock_turnover1</code> · t_o_vendor = UR_QTY ÷ ยอดขาย 90 วัน (หน่วย) — เปลี่ยนจาก cost-based เมื่อไม่นานนี้ · Materiality กรองจากมูลค่าสต็อกใน <code>ds_rbv_stock_by_branch</code> &gt; 1M (84 จาก 490 vendor)</p>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div><div class="chart-title">Top 15 Vendor ตามมูลค่า Dead Stock</div><div class="chart-caption">มูลค่ารวม Dead Stock ทั้งหมด 221.4M</div></div>
+          <div class="chart-controls"><button class="btn" data-toggle-table="deadVendorChart">View table</button></div>
+        </div>
+        <div class="bars" id="deadVendorChart"></div>
+        <div class="table-wrap table-view" id="deadVendorChart-table" hidden></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-head">
+          <div><div class="chart-title">Vendor ที่มี Turnover สูงที่สุด (Qty-based)</div><div class="chart-caption">เฉพาะ vendor ที่มีมูลค่าสต็อก &gt; 1M — ค่าสูงผิดปกติได้เมื่อยอดขาย 90 วันต่ำมาก</div></div>
+          <div class="chart-controls"><button class="btn" data-toggle-table="slowVendorChart">View table</button></div>
+        </div>
+        <div class="bars" id="slowVendorChart"></div>
+        <div class="table-wrap table-view" id="slowVendorChart-table" hidden></div>
+      </div>
+    </div>
+  </section>
+
+
+</div>
+<div id="tooltip" role="tooltip"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var fmtInt = function(n){ return Math.round(n).toLocaleString("en-US"); };
+  var fmtTHB = function(n){
+    var abs = Math.abs(n);
+    if(abs >= 1e6) return (n/1e6).toFixed(1) + "M";
+    if(abs >= 1e3) return (n/1e3).toFixed(0) + "K";
+    return fmtInt(n);
+  };
+  var fmtTHBFull = function(n){ return fmtInt(n); };
+  var pct1 = function(n){ return n.toFixed(1) + "%"; };
+  var fmtRatio = function(n){
+    if(n >= 1000) return (n/1000).toFixed(1) + "K×";
+    if(n === Math.round(n)) return n + "×";
+    return n.toFixed(2) + "×";
+  };
+  var fmtDays = function(days){
+    if(!days || days <= 0) return "0";
+    if(days >= 1000) return (days/1000).toFixed(1) + "K วัน";
+    if(days < 10) return days.toFixed(1) + " วัน";
+    return Math.round(days) + " วัน";
+  };
+
+  var tooltip = document.getElementById("tooltip");
+  function showTip(evt, title, rows){
+    var html = '<div class="tt-title">' + title + '</div>';
+    rows.forEach(function(r){ html += '<div class="tt-row"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>'; });
+    tooltip.innerHTML = html; tooltip.classList.add("show"); moveTip(evt);
+  }
+  function moveTip(evt){
+    var x = evt.clientX + 16, y = evt.clientY + 16, vw = window.innerWidth, vh = window.innerHeight;
+    tooltip.style.left = Math.min(x, vw - 280) + "px";
+    tooltip.style.top = Math.min(y, vh - 90) + "px";
+  }
+  function hideTip(){ tooltip.classList.remove("show"); }
+
+  function renderBars(containerId, data, opts){
+    var el = document.getElementById(containerId);
+    var max = opts.max || Math.max.apply(null, data.map(opts.value));
+    el.innerHTML = "";
+    data.forEach(function(d){
+      var v = opts.value(d);
+      var w = Math.min(Math.max((v / max) * 100, 0.6), 100);
+      var row = document.createElement("div");
+      row.className = "bar-row"; row.tabIndex = 0;
+      var label = document.createElement("div"); label.className = "bar-label"; label.innerHTML = opts.label(d); row.appendChild(label);
+      var track = document.createElement("div"); track.className = "bar-track";
+      var fill = document.createElement("div"); fill.className = "bar-fill"; fill.style.width = w + "%"; fill.style.background = opts.color(d);
+      track.appendChild(fill); row.appendChild(track);
+      var valueEl = document.createElement("div"); valueEl.className = "bar-value"; valueEl.innerHTML = opts.valueLabel(d); row.appendChild(valueEl);
+      var tipFn = function(evt){ showTip(evt, opts.tipTitle(d), opts.tipRows(d)); };
+      row.addEventListener("mouseenter", tipFn);
+      row.addEventListener("mousemove", moveTip);
+      row.addEventListener("mouseleave", hideTip);
+      row.addEventListener("focus", function(evt){ showTip(evt, opts.tipTitle(d), opts.tipRows(d)); });
+      row.addEventListener("blur", hideTip);
+      el.appendChild(row);
+    });
+  }
+  function renderTable(containerId, headers, rows){
+    var el = document.getElementById(containerId + "-table");
+    var html = '<table class="data-table"><thead><tr>';
+    headers.forEach(function(h){ html += "<th>" + h + "</th>"; });
+    html += "</tr></thead><tbody>";
+    rows.forEach(function(r){ html += "<tr>"; r.forEach(function(c){ html += "<td>" + c + "</td>"; }); html += "</tr>"; });
+    html += "</tbody></table>";
+    el.innerHTML = html;
+  }
+  document.body.addEventListener("click", function(evt){
+    var btn = evt.target.closest ? evt.target.closest("[data-toggle-table]") : null;
+    if(!btn) return;
+    var id = btn.getAttribute("data-toggle-table");
+    var chartEl = document.getElementById(id), tableEl = document.getElementById(id + "-table");
+    if(!chartEl || !tableEl) return;
+    var showingTable = !tableEl.hidden;
+    tableEl.hidden = showingTable;
+    chartEl.style.display = showingTable ? "" : "none";
+    btn.textContent = showingTable ? "View table" : "View chart";
+    btn.setAttribute("aria-pressed", String(!showingTable));
+    if(id === "classChart"){
+      var legendEl = document.getElementById("classAgingLegend");
+      if(legendEl) legendEl.style.display = showingTable ? "" : "none";
+    }
+  });
+
+  /* ================= DATA — snapshot 2026-09-02 ================= */
+
+  var seqColors = ["var(--seq-1)","var(--seq-2)","var(--seq-3)","var(--seq-4)","var(--seq-5)","var(--seq-6)","var(--seq-7)","var(--seq-8)"];
+
+  var vendorProfile = {
+    id: "DEMO-0001",
+    name: "Sample Vendor Co., Ltd. (mock data)",
+    totalValue: 15000000.00,
+    sku: 120,
+    branchCount: 5,
+    deadValue: 1000000.00,
+    deadPct: 6.67,
+    aging180Value: 750000.00,
+    aging180Pct: 5.00,
+    coverage: 45,
+    classStock: [
+      {name:"Class C", value:5500000.00, rows:400, kind:"normal"},
+      {name:"Class A", value:5400000.00, rows:90, kind:"normal"},
+      {name:"Class B", value:3200000.00, rows:65, kind:"normal"},
+      {name:"Dead",    value:1000000.00, rows:210, kind:"dead"},
+      {name:"New",     value:200000.00,  rows:30,  kind:"normal"},
+      {name:"Unknowable", value:5000.00, rows:2,   kind:"unknown"}
+    ],
+    agingLeaves: [
+      {classStock:"Class A",tierIdx:0,isDC:false,value:1500000.00,qty:900},
+      {classStock:"Class A",tierIdx:1,isDC:false,value:16000.00,qty:6},
+      {classStock:"Class B",tierIdx:0,isDC:false,value:880000.00,qty:570},
+      {classStock:"Class C",tierIdx:0,isDC:false,value:1950000.00,qty:1420},
+      {classStock:"Class C",tierIdx:1,isDC:false,value:340000.00,qty:260},
+      {classStock:"Dead",tierIdx:7,isDC:false,value:230000.00,qty:240},
+      {classStock:"Class A",tierIdx:0,isDC:true,value:3800000.00,qty:2200},
+      {classStock:"Class B",tierIdx:0,isDC:true,value:2300000.00,qty:1100},
+      {classStock:"Class C",tierIdx:0,isDC:true,value:2500000.00,qty:1180}
+    ],
+    branches: [
+      {branch:"DC Branch", value:8900000.00, qty:4600, sku:105, isDC:true},
+      {branch:"Branch A", value:1250000.00, qty:590, sku:60},
+      {branch:"Branch B", value:1150000.00, qty:620, sku:55},
+      {branch:"Branch C", value:1050000.00, qty:580, sku:50},
+      {branch:"Branch D", value:560000.00, qty:360, sku:35}
+    ],
+    branchMchBrandTO: [
+      {branch:"DC Branch",mch3:"Category 1",brand:"BRAND X",value:8600000.00,qty:4500,avgDaily:1000,isDC:true},
+      {branch:"DC Branch",mch3:"Category 1",brand:"BRAND Y",value:190000.00,qty:24,avgDaily:3,isDC:true},
+      {branch:"Branch A",mch3:"Category 1",brand:"BRAND X",value:1150000.00,qty:570,avgDaily:160,isDC:false},
+      {branch:"Branch B",mch3:"Category 1",brand:"BRAND X",value:1140000.00,qty:605,avgDaily:220,isDC:false},
+      {branch:"Branch C",mch3:"Category 2",brand:"BRAND X",value:1040000.00,qty:570,avgDaily:245,isDC:false}
+    ],
+    mcDimTO: [
+      {mch3:"Category 1",mch2:"Sub-category 1",mch1:"Group 1",mc:"Item Group A",brand:"BRAND X",classStock:"A",isDC:true,value:1490000.00,qty:260,avgDaily:29},
+      {mch3:"Category 1",mch2:"Sub-category 1",mch1:"Group 1",mc:"Item Group B",brand:"BRAND X",classStock:"B",isDC:true,value:650000.00,qty:105,avgDaily:8},
+      {mch3:"Category 1",mch2:"Sub-category 2",mch1:"Group 2",mc:"Item Group C",brand:"BRAND X",classStock:"A",isDC:false,value:640000.00,qty:113,avgDaily:58}
+    ],
+    exportStockByBranch: [
+      ["DC Branch","SAMPLE-0001","Sample Item Name 001","Category 1","STANDARD",83,155102.39],
+      ["DC Branch","SAMPLE-0002","Sample Item Name 002","Category 1","REGULAR",11,37594.56],
+      ["Branch A","SAMPLE-0003","Sample Item Name 003","Category 1","DISCON",0,0],
+      ["Branch A","SAMPLE-0004","Sample Item Name 004","Category 2","STANDARD",57,333051.25],
+      ["Branch B","SAMPLE-0005","Sample Item Name 005","Category 1","STANDARD",97,364491.32]
+    ],
+    exportStockAging: [
+      ["DC Branch","SAMPLE-0001","Sample Item Name 001","BRAND X","Category 1","Sub-category 1","N/A","STANDARD","1) 0 - 60 Days","Class C",9,155102.39,83,5606.11,3,149496.28,80],
+      ["DC Branch","SAMPLE-0002","Sample Item Name 002","BRAND X","Category 1","Sub-category 1","N/A","REGULAR","1) 0 - 60 Days","Class C",8,37594.56,11,3417.69,1,34176.87,10],
+      ["Branch A","SAMPLE-0003","Sample Item Name 003","BRAND Y","Category 1","Sub-category 2","N/A","DISCON","8) >361 Days","Dead",433,3459.48,3,3459.48,3,0,0]
+    ],
+    exportTurnover: [
+      ["Branch A","Category 1",6143,82,310,5.05,45],
+      ["Branch B","Category 1",1986,125,233,11.73,45],
+      ["Branch C","Category 2",2132,98,336,15.76,45]
+    ],
+    exportTurnoverBrand: [
+      ["Category 1","BRAND X","Class A",32346,89,45],
+      ["Category 1","BRAND X","Class C",32832,142,45],
+      ["Category 1","BRAND Y","Class C",168,252,120]
+    ]
+  };
+
+  var companyProfile = {
+    totalValue: 220000000.00,
+    sku: 4000,
+    vendorCount: 49,
+    branchCount: 6,
+    agingTotalValue: 226900000.00,
+    deadValue: 22100000.00,
+    deadPct: 9.75,
+    aging180Value: 18000000.00,
+    aging180Pct: 7.96,
+    coverage: 134.2,
+    classStock: [
+      {name:"Class C", value:120000000.00, rows:10200, kind:"normal"},
+      {name:"Class A", value:40100000.00,  rows:1180,  kind:"normal"},
+      {name:"Class B", value:33100000.00,  rows:1100,  kind:"normal"},
+      {name:"Dead",    value:22100000.00,  rows:6000,  kind:"dead"},
+      {name:"New",     value:10700000.00,  rows:1200,  kind:"normal"},
+      {name:"Unknowable", value:640000.00, rows:245,   kind:"unknown"}
+    ],
+    agingTiers: [
+      {tier:"0–60 days",    value:185000000.00, qty:2250000},
+      {tier:"61–90 days",   value:9600000.00,   qty:98000},
+      {tier:"91–120 days",  value:6100000.00,   qty:63000},
+      {tier:"121–150 days", value:3900000.00,   qty:33000},
+      {tier:"151–180 days", value:3400000.00,   qty:32000},
+      {tier:"181–270 days", value:6500000.00,   qty:56000},
+      {tier:"271–360 days", value:3700000.00,   qty:24000},
+      {tier:">361 days",    value:7800000.00,   qty:103000}
+    ],
+    branches: [
+      {branch:"DC Branch", value:141000000.00, qty:1527000, sku:2330, vendor:31, isDC:true},
+      {branch:"Branch A", value:10500000.00, qty:126000, sku:1490, vendor:30},
+      {branch:"Branch B", value:8900000.00, qty:112000, sku:1410, vendor:33},
+      {branch:"Branch C", value:8800000.00, qty:103000, sku:1380, vendor:28},
+      {branch:"Branch D", value:8400000.00, qty:99000, sku:1385, vendor:28},
+      {branch:"Branch E", value:6000000.00, qty:80000, sku:1130, vendor:23}
+    ],
+    deadVendors: [
+      {id:"V001", name:"Sample Vendor A Co., Ltd.", value:3557000.00},
+      {id:"V002", name:"Sample Vendor B Co., Ltd.", value:2964000.00},
+      {id:"V003", name:"Sample Vendor C Co., Ltd.", value:1221000.00},
+      {id:"V004", name:"Sample Vendor D Co., Ltd.", value:1205000.00},
+      {id:"DEMO-0001", name:"Sample Vendor Co., Ltd. (mock data)", value:1044000.00}
+    ],
+    slowVendors: [
+      {id:"V005", name:"Sample Vendor E Co., Ltd.", totalCost:328000.00, qty:462, to:1808, deadPct:81.4},
+      {id:"V006", name:"Sample Vendor F Co., Ltd.", totalCost:258000.00, qty:4377, to:433, deadPct:15.3},
+      {id:"V007", name:"Sample Vendor G Co., Ltd.", totalCost:1083000.00, qty:2798, to:106, deadPct:23.7}
+    ]
+  };
+
+  var TIER_LABELS_SHORT = ["<90d","<180d",">180d"];
+  var TIER_LABELS_FULL = ["0–60 days","61–90 days","91–120 days","121–150 days","151–180 days","181–270 days","271–360 days",">361 days"];
+  var TIER_COLORS = ["var(--status-good)", "var(--status-warning)", "var(--status-critical)"];
+  var CLASS_ORDER = ["Class A", "Class B", "Class C", "Dead", "New", "Unknowable"];
+
+  function buildAgingData(leaves, excludeDC){
+    var filtered = excludeDC ? leaves.filter(function(l){ return !l.isDC; }) : leaves;
+    var totalValue = 0;
+    var classMap = {};
+    var tierTotals = TIER_LABELS_FULL.map(function(){ return {value: 0, qty: 0}; });
+    filtered.forEach(function(l){
+      totalValue += l.value;
+      if(!classMap[l.classStock]) classMap[l.classStock] = {total: 0, tiers: [0, 0, 0]};
+      var bucket = l.tierIdx <= 1 ? 0 : (l.tierIdx <= 4 ? 1 : 2);
+      classMap[l.classStock].total += l.value;
+      classMap[l.classStock].tiers[bucket] += l.value;
+      tierTotals[l.tierIdx].value += l.value;
+      tierTotals[l.tierIdx].qty += l.qty;
+    });
+    var classAging = CLASS_ORDER.filter(function(name){ return classMap[name]; }).map(function(name){
+      return {name: name, total: classMap[name].total, tiers: classMap[name].tiers};
+    });
+    var agingTiers = TIER_LABELS_FULL.map(function(lbl, i){ return {tier: lbl, value: tierTotals[i].value, qty: tierTotals[i].qty}; });
+    return {classAging: classAging, agingTiers: agingTiers, totalValue: totalValue};
+  }
+
+  function drawClassAgingChart(profile, excludeDC){
+    var agingData = buildAgingData(profile.agingLeaves, excludeDC);
+    var rows = agingData.classAging;
+    var agingTotalValue = agingData.totalValue;
+    var max = Math.max.apply(null, rows.map(function(d){ return d.total; }));
+
+    document.getElementById("classAgingLegend").innerHTML = TIER_LABELS_SHORT.map(function(lbl, i){
+      return '<span class="item"><span class="swatch" style="background:' + TIER_COLORS[i] + '"></span>' + lbl + "</span>";
+    }).join("");
+
+    var container = document.getElementById("classChart");
+    container.innerHTML = "";
+    rows.forEach(function(d){
+      var w = Math.min(Math.max((d.total / max) * 100, 0.6), 100);
+      var row = document.createElement("div");
+      row.className = "bar-row";
+
+      var label = document.createElement("div");
+      label.className = "bar-label";
+      label.innerHTML = "B3G " + d.name;
+      row.appendChild(label);
+
+      var track = document.createElement("div");
+      track.className = "bar-track";
+      var stack = document.createElement("div");
+      stack.className = "bar-stack";
+      stack.style.width = w + "%";
+      d.tiers.forEach(function(v, i){
+        if(v <= 0) return;
+        var segPct = v / d.total * 100;
+        var seg = document.createElement("div");
+        seg.className = "bar-seg";
+        seg.style.width = segPct + "%";
+        seg.style.background = TIER_COLORS[i];
+        if(segPct >= 20){
+          seg.style.display = "flex";
+          seg.style.alignItems = "center";
+          seg.style.justifyContent = "center";
+          seg.style.color = i === 1 ? "var(--text-primary)" : "#fff";
+          seg.style.fontSize = "10px";
+          seg.style.fontWeight = "600";
+          seg.textContent = Math.round(segPct) + "%";
+        }
+        var tipFn = function(evt){
+          showTip(evt, "B3G " + d.name + " — " + TIER_LABELS_SHORT[i], [
+            ["Stock value", fmtInt(v)],
+            ["% of this class", pct1(100 * v / d.total)]
+          ]);
+        };
+        seg.addEventListener("mouseenter", tipFn);
+        seg.addEventListener("mousemove", moveTip);
+        seg.addEventListener("mouseleave", hideTip);
+        stack.appendChild(seg);
+      });
+      track.appendChild(stack);
+      row.appendChild(track);
+
+      var valueEl = document.createElement("div");
+      valueEl.className = "bar-value";
+      valueEl.innerHTML = fmtTHB(d.total) + '<span class="sub">' + pct1(100 * d.total / agingTotalValue) + "</span>";
+      row.appendChild(valueEl);
+
+      container.appendChild(row);
+    });
+
+    var headers = ["Class"].concat(TIER_LABELS_SHORT).concat(["Total"]);
+    renderTable("classChart", headers, rows.map(function(d){
+      var cells = d.tiers.map(function(v){ return v > 0 ? fmtInt(v) : ""; });
+      return ["B3G " + d.name].concat(cells).concat([fmtInt(d.total)]);
+    }));
+  }
+
+  function drawAgingChart(profile, excludeDC){
+    var agingData = buildAgingData(profile.agingLeaves, excludeDC);
+    var tiers = agingData.agingTiers;
+    var total = agingData.totalValue;
+    renderBars("agingChart", tiers, {
+      value: function(d){ return d.value; },
+      label: function(d){ return d.tier; },
+      color: function(d){ return seqColors[tiers.indexOf(d)]; },
+      valueLabel: function(d){ return fmtTHB(d.value) + '<span class="sub">' + pct1(100*d.value/total) + "</span>"; },
+      tipTitle: function(d){ return "Aging: " + d.tier; },
+      tipRows: function(d){ return [["Stock value", fmtTHBFull(d.value)], ["% of total", pct1(100*d.value/total)], ["Quantity", fmtInt(d.qty)]]; }
+    });
+    renderTable("agingChart", ["Aging tier","Value (THB)","% of total","Quantity"],
+      tiers.map(function(d){ return [d.tier, fmtTHBFull(d.value), pct1(100*d.value/total), fmtInt(d.qty)]; }));
+  }
+
+  function branchLabel(d){ return d.branch; }
+  var branchMetric = "amt";
+  function drawBranches(profile, excludeDC){
+    var rows = excludeDC ? profile.branches.filter(function(d){ return !d.isDC; }) : profile.branches;
+    var hasVendorCol = rows.length && rows[0].vendor !== undefined;
+    var isAmt = branchMetric === "amt";
+    var metricOf = function(d){ return isAmt ? d.value : d.qty; };
+    var fmtMetric = isAmt ? fmtTHB : fmtInt;
+    var fmtMetricFull = isAmt ? fmtTHBFull : fmtInt;
+    rows = rows.slice().sort(function(a,b){ return metricOf(b) - metricOf(a); });
+    var total = rows.reduce(function(s,d){ return s + metricOf(d); }, 0);
+
+    document.getElementById("branchChartTitle").textContent = isAmt ? "มูลค่าสต็อกตามสาขา (UR_AMT)" : "จำนวนสต็อกตามสาขา (UR_QTY)";
+
+    renderBars("branchChart", rows, {
+      value: metricOf,
+      label: branchLabel,
+      color: function(){ return "var(--accent)"; },
+      valueLabel: function(d){ return fmtMetric(metricOf(d)) + '<span class="sub">' + pct1(total ? 100*metricOf(d)/total : 0) + "</span>"; },
+      tipTitle: function(d){ return d.branch; },
+      tipRows: function(d){
+        var r = [["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)], ["% of total shown", pct1(total ? 100*metricOf(d)/total : 0)], ["SKUs", fmtInt(d.sku)]];
+        if(hasVendorCol) r.push(["Vendors", fmtInt(d.vendor)]);
+        return r;
+      }
+    });
+    var headers = hasVendorCol ? ["Branch","Value (UR_AMT)","Quantity (UR_QTY)","% of total shown","SKUs","Vendors"] : ["Branch","Value (UR_AMT)","Quantity (UR_QTY)","% of total shown","SKUs"];
+    var tableRows = rows.map(function(d){
+      var r = [d.branch + (d.isDC ? " (DC)" : ""), fmtTHBFull(d.value), fmtInt(d.qty), pct1(total ? 100*metricOf(d)/total : 0), fmtInt(d.sku)];
+      if(hasVendorCol) r.push(fmtInt(d.vendor));
+      return r;
+    });
+    renderTable("branchChart", headers, tableRows);
+    branchChartExportState = {headers: headers, rows: tableRows};
+  }
+
+  var branchChartExportState = null;
+
+  function branchChartExportCsv(){
+    if(!branchChartExportState) return;
+    downloadCsv(branchChartExportState.headers, branchChartExportState.rows, "vendor_" + vendorProfile.id + "_stock_by_branch.csv");
+  }
+
+  var VBRANCH_DIM_ORDER = ["branch", "mch3", "brand"];
+  var VBRANCH_DIM_LABELS = {branch: "สาขา", mch3: "MCH3", brand: "Brand"};
+  var vBranchActiveDims = ["branch"];
+
+  function vBranchAggregate(leaves, dims){
+    var groups = {};
+    leaves.forEach(function(leaf){
+      var key = dims.map(function(d){ return leaf[d]; }).join("");
+      if(!groups[key]){
+        var g = {value: 0, qty: 0, avgDaily: 0, isDC: false};
+        dims.forEach(function(d){ g[d] = leaf[d]; });
+        groups[key] = g;
+      }
+      groups[key].value += leaf.value;
+      groups[key].qty += leaf.qty;
+      groups[key].avgDaily += leaf.avgDaily;
+      if(leaf.isDC) groups[key].isDC = true;
+    });
+    return Object.keys(groups).map(function(k){
+      var g = groups[k];
+      g.to = g.avgDaily > 0 ? g.qty / g.avgDaily : 0;
+      return g;
+    });
+  }
+
+  function drawVendorBranchTO(profile, excludeDC, activeDims){
+    var dims = VBRANCH_DIM_ORDER.filter(function(d){ return activeDims.indexOf(d) !== -1; });
+    var leaves = excludeDC ? profile.branchMchBrandTO.filter(function(l){ return !l.isDC; }) : profile.branchMchBrandTO;
+    var rows = vBranchAggregate(leaves, dims).sort(function(a,b){ return b.value - a.value; });
+
+    document.getElementById("vBranchTOTitle").textContent = "มูลค่า จำนวน และ Turnover ตาม " + dims.map(function(d){ return VBRANCH_DIM_LABELS[d]; }).join(" และ ");
+
+    var labelW = {1: 168, 2: 220, 3: 280}[dims.length] || 168;
+    var labelWMobile = {1: 108, 2: 145, 3: 180}[dims.length] || 108;
+    var chartContainer = document.getElementById("vBranchTOChart");
+    chartContainer.style.setProperty("--label-w", labelW + "px");
+    chartContainer.style.setProperty("--label-w-mobile", labelWMobile + "px");
+
+    function labelOf(d){ return dims.map(function(k){ return d[k]; }).join(" · "); }
+
+    renderBars("vBranchTOChart", rows, {
+      value: function(d){ return d.value; },
+      label: function(d){ return labelOf(d); },
+      color: function(){ return "var(--accent)"; },
+      valueLabel: function(d){ return fmtTHB(d.value) + '<span class="sub">' + fmtInt(d.qty) + ' ชิ้น · ' + fmtDays(d.to) + "</span>"; },
+      tipTitle: function(d){ return labelOf(d); },
+      tipRows: function(d){ return [["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)], ["Turnover (days of supply)", fmtDays(d.to)]]; }
+    });
+
+    var totalValue = 0, totalQty = 0, totalAvgDaily = 0;
+    rows.forEach(function(d){ totalValue += d.value; totalQty += d.qty; totalAvgDaily += d.avgDaily; });
+    var totalTurnover = totalAvgDaily > 0 ? totalQty / totalAvgDaily : 0;
+
+    var headers = dims.map(function(d){ return VBRANCH_DIM_LABELS[d]; }).concat(["Value (THB)", "Quantity", "Turnover"]);
+    var tableRows = rows.map(function(d){
+      var cells = dims.map(function(k){ return d[k] + (k === "branch" && d.isDC ? " (DC)" : ""); });
+      return cells.concat([fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.to)]);
+    });
+    tableRows.push(dims.map(function(d,i){ return i === 0 ? "Total" : ""; }).concat([fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]));
+    renderTable("vBranchTOChart", headers, tableRows);
+    vBranchTOExportState = {headers: headers, rows: tableRows};
+  }
+
+  var vBranchTOExportState = null;
+
+  function vBranchTOExportCsv(){
+    if(!vBranchTOExportState) return;
+    downloadCsv(vBranchTOExportState.headers, vBranchTOExportState.rows, "vendor_" + vendorProfile.id + "_branch_turnover.csv");
+  }
+
+  var MC_DIM_ORDER = ["mch3", "mch2", "mch1", "mc", "brand", "classStock"];
+  var MC_DIM_LABELS = {mch3: "MCH3", mch2: "MCH2", mch1: "MCH1", mc: "MC", brand: "Brand", classStock: "CLASS_STOCK"};
+  var mcActiveDims = ["mch3"];
+  var mcExportState = null;
+
+  function csvEscape(v){
+    v = String(v);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+
+  function downloadCsv(headers, rows, filename){
+    var csv = "﻿" + [headers].concat(rows).map(function(row){
+      return row.map(csvEscape).join(",");
+    }).join("\r\n");
+    var blob = new Blob([csv], {type: "text/csv;charset=utf-8;"});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  var EXPORT_SNAPSHOT_DATE = "2026-09-03";
+
+  function exportFullReport(){
+    var vid = vendorProfile.id, vname = vendorProfile.name, sd = EXPORT_SNAPSHOT_DATE, ed = EXPORT_SNAPSHOT_DATE;
+
+    var branchHeaders = ["VENDOR_ID","VENDOR_NAME","BRANCH","ARTICLE_ID","ARTICLE_NAME_TH","MCH3","ITEM_FLAG","UR_QTY","UR_COST_AMT","START_DATE","END_DATE"];
+    var branchRows = vendorProfile.exportStockByBranch.map(function(r){
+      return [vid, vname, r[0], r[1], r[2], r[3], r[4], r[5], r[6], sd, ed];
+    });
+
+    var agingHeaders = ["VENDOR_ID","VENDOR_NAME","BRANCH","ARTICLE_ID","ARTICLE_NAME_TH","BRAND","MCH3","MCH2","TILE_SIZE","ITEM_FLAG","AGING_TIER","CLASS_STOCK","AGING","UR_AMT","UR_QTY","RESERVE_AMT","RESERVE_QTY","REMAIN_AMT","REMAIN_QTY","START_DATE","END_DATE"];
+    var agingRows = vendorProfile.exportStockAging.map(function(r){
+      return [vid, vname, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15], r[16], sd, ed];
+    });
+
+    var turnoverHeaders = ["VENDOR_ID","VENDOR_NAME","BRANCH","MCH3","UR_QTY","T_O","UR_QTY_DEAD","PCT_DEAD","T_O_VENDOR","START_DATE","END_DATE"];
+    var turnoverRows = vendorProfile.exportTurnover.map(function(r){
+      return [vid, vname, r[0], r[1], r[2], r[3], r[4], r[5], r[6], sd, ed];
+    });
+
+    var turnoverBrandHeaders = ["VENDOR_ID","VENDOR_NAME","MCH3","BRAND","CLASS_STOCK","UR_QTY","T_O","T_O_BRAND","START_DATE","END_DATE"];
+    var turnoverBrandRows = vendorProfile.exportTurnoverBrand.map(function(r){
+      return [vid, vname, r[0], r[1], r[2], r[3], r[4], r[5], sd, ed];
+    });
+
+    var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
+      '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">' +
+      '<Styles><Style ss:ID="Header"><Font ss:Bold="1"/></Style></Styles>' +
+      xlsSheetXml("Stock by branch", branchHeaders, branchRows, [0,0,0,0,0,0,0,1,1,0,0]) +
+      xlsSheetXml("Stock aging", agingHeaders, agingRows, [0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,0,0]) +
+      xlsSheetXml("Turnover", turnoverHeaders, turnoverRows, [0,0,0,0,1,1,1,1,1,0,0]) +
+      xlsSheetXml("Turnover_Brand", turnoverBrandHeaders, turnoverBrandRows, [0,0,0,0,0,1,1,1,0,0]) +
+      '</Workbook>';
+
+    var blob = new Blob([xml], {type: "application/vnd.ms-excel"});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "vendor_" + vid + "_full_export.xls";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function xmlEscape(v){
+    return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function xlsSheetXml(name, headers, rows, numericFlags){
+    var xml = '<Worksheet ss:Name="' + xmlEscape(name) + '"><Table>';
+    xml += "<Row>" + headers.map(function(h){
+      return '<Cell ss:StyleID="Header"><Data ss:Type="String">' + xmlEscape(h) + "</Data></Cell>";
+    }).join("") + "</Row>";
+    rows.forEach(function(row){
+      xml += "<Row>" + row.map(function(v, i){
+        var type = numericFlags[i] ? "Number" : "String";
+        return '<Cell><Data ss:Type="' + type + '">' + xmlEscape(v) + "</Data></Cell>";
+      }).join("") + "</Row>";
+    });
+    xml += "</Table></Worksheet>";
+    return xml;
+  }
+
+  function renderMcTable(){
+    var dims = MC_DIM_ORDER.filter(function(d){ return mcActiveDims.indexOf(d) !== -1; });
+    var leaves = globalDcExcluded ? vendorProfile.mcDimTO.filter(function(l){ return !l.isDC; }) : vendorProfile.mcDimTO;
+    var rows = vBranchAggregate(leaves, dims).sort(function(a,b){ return b.value - a.value; });
+
+    var totalValue = 0, totalQty = 0, totalAvgDaily = 0;
+    rows.forEach(function(d){ totalValue += d.value; totalQty += d.qty; totalAvgDaily += d.avgDaily; });
+    var totalTurnover = totalAvgDaily > 0 ? totalQty / totalAvgDaily : 0;
+
+    var headers = dims.map(function(d){ return MC_DIM_LABELS[d]; }).concat(["Value (THB)", "Quantity", "Turnover"]);
+    var html = '<table class="data-table"><thead><tr>';
+    headers.forEach(function(h){ html += "<th>" + h + "</th>"; });
+    html += "</tr></thead><tbody>";
+    var tableRows = rows.map(function(d){
+      return dims.map(function(k){ return d[k]; }).concat([fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.to)]);
+    });
+    tableRows.push(dims.map(function(d,i){ return i === 0 ? "Total" : ""; }).concat([fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]));
+    tableRows.forEach(function(r){
+      html += "<tr>"; r.forEach(function(c){ html += "<td>" + c + "</td>"; }); html += "</tr>";
+    });
+    html += "</tbody></table>";
+    document.getElementById("mchFlatTableWrap").innerHTML = html;
+    mcExportState = {headers: headers, rows: tableRows};
+  }
+
+  function mchExportCsv(){
+    if(!mcExportState) return;
+    downloadCsv(mcExportState.headers, mcExportState.rows, "vendor_" + vendorProfile.id + "_mc_breakdown.csv");
+  }
+
+  function drawDeadVendorChart(profile){
+    var total = profile.deadValue;
+    renderBars("deadVendorChart", profile.deadVendors, {
+      value: function(d){ return d.value; },
+      label: function(d){ return d.name + (d.tag === "internal" ? '<span class="tag">internal? (by name)</span>' : ""); },
+      color: function(){ return "var(--accent)"; },
+      valueLabel: function(d){ return fmtTHB(d.value) + '<span class="sub">' + pct1(100*d.value/total) + "</span>"; },
+      tipTitle: function(d){ return d.name; },
+      tipRows: function(d){ return [["Vendor ID", d.id], ["Dead stock value", fmtTHBFull(d.value)], ["% of total dead stock", pct1(100*d.value/total)]]; }
+    });
+    renderTable("deadVendorChart", ["Vendor","Vendor ID","Dead value (THB)","% of total dead"],
+      profile.deadVendors.map(function(d){ return [d.name, d.id, fmtTHBFull(d.value), pct1(100*d.value/total)]; }));
+  }
+
+  function drawSlowVendorChart(profile){
+    renderBars("slowVendorChart", profile.slowVendors, {
+      value: function(d){ return d.to; },
+      label: function(d){ return d.name + (d.tag === "internal" ? '<span class="tag">internal? (by name)</span>' : ""); },
+      color: function(){ return "var(--accent)"; },
+      valueLabel: function(d){
+        var cls = d.deadPct >= 40 ? "flag-critical" : "sub";
+        return fmtRatio(d.to) + "<span class=\"" + cls + "\">" + d.deadPct.toFixed(1) + "% dead</span>";
+      },
+      tipTitle: function(d){ return d.name; },
+      tipRows: function(d){ return [["Stock value", fmtTHBFull(d.totalCost)], ["Quantity (UR_QTY)", fmtInt(d.qty)], ["Turnover (qty ÷ 90d sales qty)", fmtRatio(d.to)], ["Dead stock % (qty)", pct1(d.deadPct)]]; }
+    });
+    renderTable("slowVendorChart", ["Vendor","Stock value (THB)","Quantity","Turnover","Dead stock % (qty)"],
+      profile.slowVendors.map(function(d){ return [d.name, fmtTHBFull(d.totalCost), fmtInt(d.qty), fmtRatio(d.to), pct1(d.deadPct)]; }));
+  }
+
+  var globalDcExcluded = false;
+
+  function updateKPIs(profile, role){
+    document.getElementById("kpiValueLabel").textContent = "Total Stock Value";
+    document.getElementById("kpiValue").textContent = fmtTHB(profile.totalValue);
+    document.getElementById("kpiValueSub").textContent = role === "vendor" ? "" : "company-wide, unrestricted";
+    document.getElementById("kpiSku").textContent = fmtInt(profile.sku);
+
+    if(role === "vendor"){
+      var totalQty = profile.branches.reduce(function(s,d){ return s + d.qty; }, 0);
+      document.getElementById("kpiThirdLabel").textContent = "UR_QTY";
+      document.getElementById("kpiThird").textContent = fmtInt(totalQty);
+      document.getElementById("kpiThirdSub").textContent = "";
+    } else {
+      document.getElementById("kpiThirdLabel").textContent = "Vendors";
+      document.getElementById("kpiThird").textContent = fmtInt(profile.vendorCount);
+      document.getElementById("kpiThirdSub").textContent = fmtInt(profile.branchCount) + " branches";
+    }
+
+    document.getElementById("kpiDead").textContent = fmtTHB(profile.deadValue);
+    document.getElementById("kpiDeadSub").textContent = pct1(profile.deadPct) + " of stock value";
+    document.getElementById("kpiAging180").textContent = fmtTHB(profile.aging180Value);
+    document.getElementById("kpiAging180Sub").textContent = pct1(profile.aging180Pct) + " of stock value";
+  }
+
+  function render(role){
+    var profile = role === "vendor" ? vendorProfile : companyProfile;
+    document.body.setAttribute("data-role", role);
+    document.getElementById("reportTitle").textContent = role === "vendor" ? vendorProfile.name : "All Vendors";
+
+    updateKPIs(profile, role);
+    globalDcExcluded = false;
+    document.getElementById("globalDcToggle").setAttribute("aria-pressed", "false");
+    drawClassAgingChart(profile, false);
+    drawAgingChart(profile, false);
+    drawBranches(profile, false);
+
+    if(role === "vendor"){
+      vBranchActiveDims = ["branch"];
+      VBRANCH_DIM_ORDER.forEach(function(d){
+        var el = document.getElementById("vBranchDim" + d.charAt(0).toUpperCase() + d.slice(1));
+        el.setAttribute("aria-pressed", String(d === "branch"));
+      });
+      drawVendorBranchTO(vendorProfile, false, vBranchActiveDims);
+      mcActiveDims = ["mch3"];
+      MC_DIM_ORDER.forEach(function(d){
+        var el = document.getElementById("mcDim" + d.charAt(0).toUpperCase() + d.slice(1));
+        el.setAttribute("aria-pressed", String(d === "mch3"));
+      });
+      renderMcTable();
+    }
+    else { drawDeadVendorChart(companyProfile); drawSlowVendorChart(companyProfile); }
+  }
+
+  document.getElementById("mchExportBtn").addEventListener("click", mchExportCsv);
+  document.getElementById("fullExportBtn").addEventListener("click", exportFullReport);
+  document.getElementById("vBranchTOExportBtn").addEventListener("click", vBranchTOExportCsv);
+  document.getElementById("branchChartExportBtn").addEventListener("click", branchChartExportCsv);
+
+  document.getElementById("globalDcToggle").addEventListener("click", function(){
+    globalDcExcluded = !globalDcExcluded;
+    this.setAttribute("aria-pressed", String(globalDcExcluded));
+    drawClassAgingChart(vendorProfile, globalDcExcluded);
+    drawAgingChart(vendorProfile, globalDcExcluded);
+    drawBranches(vendorProfile, globalDcExcluded);
+    drawVendorBranchTO(vendorProfile, globalDcExcluded, vBranchActiveDims);
+    renderMcTable();
+  });
+  [["vBranchDimBranch","branch"],["vBranchDimMch3","mch3"],["vBranchDimBrand","brand"]].forEach(function(pair){
+    document.getElementById(pair[0]).addEventListener("click", function(){
+      var dim = pair[1];
+      var idx = vBranchActiveDims.indexOf(dim);
+      if(idx !== -1){
+        if(vBranchActiveDims.length === 1) return; // keep at least one dimension active
+        vBranchActiveDims.splice(idx, 1);
+        this.setAttribute("aria-pressed", "false");
+      } else {
+        vBranchActiveDims.push(dim);
+        this.setAttribute("aria-pressed", "true");
+      }
+      drawVendorBranchTO(vendorProfile, globalDcExcluded, vBranchActiveDims);
+    });
+  });
+  MC_DIM_ORDER.forEach(function(dim){
+    var btnId = "mcDim" + dim.charAt(0).toUpperCase() + dim.slice(1);
+    document.getElementById(btnId).addEventListener("click", function(){
+      var idx = mcActiveDims.indexOf(dim);
+      if(idx !== -1){
+        if(mcActiveDims.length === 1) return; // keep at least one column active
+        mcActiveDims.splice(idx, 1);
+        this.setAttribute("aria-pressed", "false");
+      } else {
+        mcActiveDims.push(dim);
+        this.setAttribute("aria-pressed", "true");
+      }
+      renderMcTable();
+    });
+  });
+  document.getElementById("metricAmtBtn").addEventListener("click", function(){
+    branchMetric = "amt";
+    this.classList.add("active"); this.setAttribute("aria-pressed", "true");
+    document.getElementById("metricQtyBtn").classList.remove("active");
+    document.getElementById("metricQtyBtn").setAttribute("aria-pressed", "false");
+    drawBranches(vendorProfile, globalDcExcluded);
+  });
+  document.getElementById("metricQtyBtn").addEventListener("click", function(){
+    branchMetric = "qty";
+    this.classList.add("active"); this.setAttribute("aria-pressed", "true");
+    document.getElementById("metricAmtBtn").classList.remove("active");
+    document.getElementById("metricAmtBtn").setAttribute("aria-pressed", "false");
+    drawBranches(vendorProfile, globalDcExcluded);
+  });
+
+  render("vendor");
+
+})();
+</script>
+</body>
+</html>

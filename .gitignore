@@ -1,0 +1,6 @@
+node_modules/
+package-lock.json
+
+# Real business data - never commit these
+analytics_report.html
+vendor-stock-overview-infographic.html
