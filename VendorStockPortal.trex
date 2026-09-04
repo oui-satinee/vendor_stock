@@ -9,12 +9,12 @@
     <source-location>
       <url>http://localhost:8765/vendor_stock_portal.html</url>
     </source-location>
-    <context-menu>
-      <configure-context-menu-item />
-    </context-menu>
     <permissions>
       <permission>full data</permission>
     </permissions>
+    <context-menu>
+      <configure-context-menu-item />
+    </context-menu>
   </dashboard-extension>
   <resources>
     <resource id="name">
