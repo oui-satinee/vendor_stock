@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vendor Stock Portal</title>
+<script src="tableau.extensions.1.latest.js"></script>
+<style>
+  :root{
+    --bg:#f5f7fa; --surface:#ffffff; --surface-2:#eef1f6; --border:rgba(11,14,20,0.10);
+    --text-primary:#0b0e14; --text-secondary:#4b5566; --text-muted:#838b99;
+    --accent:#2a78d6; --accent-soft:rgba(42,120,214,0.12);
+    --status-critical:#d03b3b; --status-critical-bg:rgba(208,59,59,0.10);
+    --status-good:#0ca30c; --status-warning:#fab219;
+    --gridline:#e3e7ee; --shadow:0 1px 2px rgba(11,14,20,0.04),0 8px 24px rgba(11,14,20,0.05);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--text-primary);font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55}
+  .wrap{max-width:1500px;margin:0 auto;padding:16px 20px 24px}
+
+  /* Loading / error */
+  .loading-overlay{display:none;text-align:center;padding:60px 20px;color:var(--text-secondary)}
+  .loading-overlay .spinner{display:inline-block;width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:10px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .error-banner{display:none;background:var(--status-critical-bg);border:1px solid rgba(208,59,59,0.35);border-radius:8px;padding:12px 16px;margin-bottom:14px;color:var(--status-critical);font-size:13px}
+  .error-banner button{float:right;cursor:pointer;font-weight:700;background:none;border:none;color:var(--status-critical)}
+
+  /* Header */
+  .header{background:linear-gradient(135deg,#12203a,#2a78d6);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-radius:10px;margin-bottom:14px;flex-wrap:wrap;gap:10px}
+  .header h1{font-size:18px;margin:0}
+  .header .sub{font-size:12px;opacity:.8;margin-top:2px}
+  .h-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .h-btn{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff;padding:7px 12px;border-radius:7px;cursor:pointer;font-size:12px}
+  .h-btn:hover{background:rgba(255,255,255,.24)}
+
+  /* Settings bar */
+  #settingsBar{display:none;background:#12203a;padding:10px 20px;align-items:center;gap:12px;flex-wrap:wrap;border-radius:8px;margin-bottom:14px}
+  #settingsBar span{color:#fff;font-size:12px;font-weight:600}
+  #settingsBar select{padding:6px 10px;border:1px solid rgba(255,255,255,.3);border-radius:7px;background:rgba(255,255,255,.1);color:#fff;font-size:12px;min-width:220px}
+  #settingsBar select option{color:#0b0e14}
+  .btn-primary{padding:6px 14px;border:none;border-radius:7px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer}
+  .toggle-btn{padding:6px 12px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-size:12px;cursor:pointer}
+  .toggle-btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+  /* KPI */
+  .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px}
+  .kpi{background:var(--surface);border-radius:10px;box-shadow:var(--shadow);padding:16px}
+  .kpi .label{font-size:12px;color:var(--text-secondary);margin-bottom:6px}
+  .kpi .value{font-size:24px;font-weight:700}
+  .kpi .sub{font-size:11px;color:var(--text-muted);margin-top:4px}
+  .kpi .value.critical{color:var(--status-critical)}
+
+  /* Cards */
+  .section-title{font-size:12px;font-weight:700;letter-spacing:.4px;color:var(--text-muted);text-transform:uppercase;margin:18px 0 8px}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:900px){.grid-2{grid-template-columns:1fr}}
+  .card{background:var(--surface);border-radius:10px;box-shadow:var(--shadow);padding:16px 18px}
+  .card h2{font-size:14px;margin:0 0 12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .card h2 .card-actions{display:flex;gap:6px}
+  .card h2 button{font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer}
+
+  /* Bar rows */
+  .bar-row{display:grid;grid-template-columns:130px 1fr 100px;align-items:center;gap:8px;padding:5px 0}
+  .bar-label{font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{background:var(--surface-2);border-radius:5px;height:16px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:5px;min-width:2px}
+  .bar-value{font-size:12px;text-align:right;white-space:nowrap}
+
+  /* Detail table */
+  .tbl-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .search-box{padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;width:200px}
+  .dtbl-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:8px}
+  table.d-table{width:100%;border-collapse:collapse;font-size:12px}
+  .d-table th{background:var(--surface-2);padding:7px 9px;text-align:left;font-weight:600;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.3px;border-bottom:2px solid var(--border);position:sticky;top:0;cursor:pointer;white-space:nowrap}
+  .d-table td{padding:6px 9px;border-bottom:1px solid var(--gridline);white-space:nowrap}
+  .d-table tr:hover td{background:var(--surface-2)}
+
+  #tooltip{position:fixed;display:none;background:#12203a;color:#fff;padding:8px 10px;border-radius:6px;font-size:11px;pointer-events:none;z-index:50;max-width:260px}
+  #tooltip.show{display:block}
+  .tt-row{display:flex;justify-content:space-between;gap:12px}
+  .tt-title{font-weight:700;margin-bottom:4px}
+
+  .empty-state{display:none;text-align:center;padding:60px 20px;color:var(--text-muted)}
+</style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <p id="loadingText">กำลังโหลดข้อมูลจาก Tableau...</p>
+</div>
+
+<div class="wrap">
+
+  <div class="header">
+    <div>
+      <h1 id="reportTitle">Vendor Stock Portal</h1>
+      <div class="sub">Stock aging &amp; branch distribution — reads a Tableau worksheet directly</div>
+    </div>
+    <div class="h-actions">
+      <button class="h-btn" id="exportCsvBtn">Export SKU CSV</button>
+      <button class="h-btn" id="excludeDcBtn" style="display:none" aria-pressed="false">Exclude DC</button>
+      <button class="h-btn" id="settingsToggle">Settings</button>
+    </div>
+  </div>
+
+  <div id="settingsBar">
+    <span>Worksheet:</span>
+    <select id="worksheetSelect"><option>-- select worksheet --</option></select>
+    <button class="btn-primary" id="loadDataBtn">Load data</button>
+    <button class="h-btn" id="settingsClose" style="margin-left:auto">Close</button>
+  </div>
+
+  <div class="error-banner" id="errorBanner">
+    <button id="errorCloseBtn">&times;</button>
+    <span id="errorText"></span>
+  </div>
+
+  <div class="empty-state" id="emptyState">
+    Select a worksheet in Settings and click "Load data" to get started.<br>
+    Required columns: BRANCH, ARTICLE_ID, UR_AMT (or UR_COST_AMT), UR_QTY, and either CLASS_STOCK or AGING_TIER/AGING.
+  </div>
+
+  <div id="dashboard" style="display:none">
+
+    <div class="kpi-row">
+      <div class="kpi"><div class="label">Total Stock Value</div><div class="value" id="kpiValue">-</div></div>
+      <div class="kpi"><div class="label">SKU Count</div><div class="value" id="kpiSku">-</div><div class="sub">distinct ARTICLE_ID</div></div>
+      <div class="kpi"><div class="label">Branches</div><div class="value" id="kpiBranches">-</div></div>
+      <div class="kpi"><div class="label">Dead Stock Value</div><div class="value critical" id="kpiDead">-</div><div class="sub" id="kpiDeadSub"></div></div>
+      <div class="kpi"><div class="label">Aging &gt; 180 Days</div><div class="value critical" id="kpiAging180">-</div><div class="sub" id="kpiAging180Sub"></div></div>
+    </div>
+
+    <div class="section-title">Stock aging</div>
+    <div class="grid-2">
+      <div class="card">
+        <h2>Value by aging tier</h2>
+        <div id="agingChart"></div>
+      </div>
+      <div class="card">
+        <h2>Value by class &times; aging bucket</h2>
+        <div id="classAgingChart"></div>
+      </div>
+    </div>
+
+    <div class="section-title">Stock by branch</div>
+    <div class="card">
+      <h2>
+        <span>Value by branch</span>
+        <span class="card-actions">
+          <button class="toggle-btn" id="metricAmtBtn" aria-pressed="true">UR_AMT</button>
+          <button class="toggle-btn" id="metricQtyBtn" aria-pressed="false">UR_QTY</button>
+        </span>
+      </h2>
+      <div id="branchChart"></div>
+    </div>
+
+    <div class="section-title">SKU detail</div>
+    <div class="card">
+      <div class="tbl-controls">
+        <input class="search-box" id="searchBox" placeholder="Search article / branch / brand...">
+        <span id="rowCount" style="font-size:12px;color:var(--text-muted)"></span>
+      </div>
+      <div class="dtbl-wrap">
+        <table class="d-table">
+          <thead>
+            <tr>
+              <th data-col="branch">Branch</th>
+              <th data-col="articleId">Article ID</th>
+              <th data-col="articleName">Article name</th>
+              <th data-col="brand">Brand</th>
+              <th data-col="mch3">MCH3</th>
+              <th data-col="classStock">Class</th>
+              <th data-col="agingTier">Aging tier</th>
+              <th data-col="urQty">UR_QTY</th>
+              <th data-col="urAmt">UR_AMT</th>
+            </tr>
+          </thead>
+          <tbody id="dBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<div id="tooltip" role="tooltip"></div>
+
+<script src="vendor_stock_portal.js"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
+  <dashboard-extension id="com.satinee.vendor-stock-portal" extension-version="1.0.0">
+    <default-locale>en_US</default-locale>
+    <name resource-id="name"/>
+    <description>Vendor Stock Portal — stock aging &amp; branch distribution tool</description>
+    <author name="Satinee" email="satinee.kam@boonthavorn.com" organization="Boonthavorn" website="https://github.com/oui-satinee"/>
+    <min-api-version>1.4</min-api-version>
+    <source-location>
+      <url>http://localhost:8765/vendor_stock_portal.html</url>
+    </source-location>
+    <context-menu>
+      <configure-context-menu-item />
+    </context-menu>
+    <permissions>
+      <permission>full data</permission>
+    </permissions>
+  </dashboard-extension>
+  <resources>
+    <resource id="name">
+      <text locale="en_US">Vendor Stock Portal</text>
+    </resource>
+  </resources>
+</manifest>
