@@ -435,7 +435,10 @@
 
     document.getElementById("branchChartTitle").textContent = isAmt ? "มูลค่าสต็อกตามสาขา (UR_AMT)" : "จำนวนสต็อกตามสาขา (UR_QTY)";
 
-    var hasDcFlag = records.some(function (d) { return d.isDC; });
+    // Check the raw, unfiltered data — `records` here may already have DC
+    // rows removed when the toggle is on, which would otherwise make the
+    // button hide itself the moment it's switched on.
+    var hasDcFlag = S.data.some(function (d) { return d.isDC; });
     document.getElementById("excludeDcBtn").style.display = hasDcFlag ? "" : "none";
 
     renderBars("branchChart", rows, {
