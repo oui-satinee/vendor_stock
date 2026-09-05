@@ -62,8 +62,15 @@ GitHub Pages is already enabled for this repo (Settings → Pages → branch
 `main` / root). This works from any machine with Tableau Desktop — no local
 server needed. In Tableau Desktop: open a workbook with vendor stock data →
 build a dashboard containing that worksheet → **Objects → Extensions** → pick
-`VendorStockPortal.trex` → in the extension's **Settings** panel, select the
-worksheet and click **Load data**.
+`VendorStockPortal.trex`.
+
+**No configuration step** — there's no worksheet picker. The extension
+auto-loads from whatever worksheet object(s) are placed on the dashboard next
+to it. With exactly one worksheet, that one is used. With more than one, it
+uses the **last one in Tableau's worksheet list** (the closest available
+proxy for "most recently placed" — the Extensions API doesn't expose a true
+placement timestamp), so if you need a specific sheet, arrange for it to be
+the last one added, or keep just one worksheet on that dashboard.
 
 **Caveat:** every push to `main` updates the live Pages URL (usually within a
 minute). Re-adding the extension always fetches the latest version — there's
@@ -93,7 +100,7 @@ section-kicker style, same chart-card "View table" toggle, same tooltip):
 - **02 — Stock by Branch**: bar chart (toggle UR_AMT / UR_QTY), "Exclude DC" filter when a DC flag is present, CSV export
 - **03 — Stock Turnover**: branch/MCH3/Brand dimension-toggle chart, and an MC breakdown table with a 6-way dimension toggle (MCH3/MCH2/MCH1/MC/Brand/CLASS_STOCK) — both with CSV export. Always shown; turnover reads 0 without an `AVG_DAILY` column
 - A header "Export" button producing a multi-sheet `.xls` (stock detail, branch summary, and turnover sheets when available) — same approach as the legacy report's full export
-- Auto-refresh on Tableau filter changes; worksheet selection persists in the workbook
+- No configuration UI — auto-loads from whichever worksheet(s) are on the dashboard; auto-refreshes on Tableau filter changes
 
 ## Data dictionary (legacy report → Tableau data source)
 

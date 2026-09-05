@@ -648,20 +648,21 @@
   }
 
   // ─── Tableau: data loading ────────────────────────────────
-  function getSelectedWorksheet() {
-    var dashboard = tableau.extensions.dashboardContent.dashboard;
-    var name = S.worksheetName;
-    if (!name) return null;
-    var worksheets = dashboard.worksheets;
-    for (var i = 0; i < worksheets.length; i++) {
-      if (worksheets[i].name === name) return worksheets[i];
-    }
-    return null;
+  // No manual worksheet picker: auto-use whatever worksheet object(s) are
+  // placed on the dashboard next to this extension. With more than one,
+  // the last one in Tableau's list is used as the closest available proxy
+  // for "most recently placed" (the Extensions API doesn't expose a true
+  // placement timestamp).
+  function pickWorksheet() {
+    var worksheets = tableau.extensions.dashboardContent.dashboard.worksheets;
+    if (!worksheets || worksheets.length === 0) return null;
+    return worksheets[worksheets.length - 1];
   }
 
   function loadWorksheetData() {
-    var ws = getSelectedWorksheet();
-    if (!ws) { showError('Worksheet "' + S.worksheetName + '" not found.'); hideLoading(); return; }
+    var ws = pickWorksheet();
+    if (!ws) { showError("No worksheet is placed on this dashboard. Add a worksheet object next to the extension."); hideLoading(); return; }
+    S.worksheetName = ws.name;
 
     showLoading('Reading data from worksheet "' + ws.name + '"...');
     hideError();
@@ -731,7 +732,7 @@
     unregisterFns = [];
     var dashboard = tableau.extensions.dashboardContent.dashboard;
     dashboard.worksheets.forEach(function (ws) {
-      var fn = function () { if (ws.name === S.worksheetName) loadWorksheetData(); };
+      var fn = function () { loadWorksheetData(); };
       unregisterFns.push(ws.addEventListener(tableau.TableauEventType.FilterChanged, fn));
       unregisterFns.push(ws.addEventListener(tableau.TableauEventType.SummaryDataChanged, fn));
     });
@@ -740,24 +741,6 @@
   // ─── Event wiring ─────────────────────────────────────────
   function attachEvents() {
     document.getElementById("errorCloseBtn").addEventListener("click", hideError);
-
-    document.getElementById("loadDataBtn").addEventListener("click", function () {
-      var sel = document.getElementById("worksheetSelect");
-      S.worksheetName = sel.value;
-      if (!S.worksheetName || S.worksheetName.indexOf("--") === 0) return;
-      tableau.extensions.settings.set("worksheet", S.worksheetName);
-      tableau.extensions.settings.saveAsync().then(function () {
-        loadWorksheetData();
-        registerFilterListeners();
-      });
-    });
-
-    document.getElementById("settingsToggle").addEventListener("click", function () {
-      document.getElementById("settingsBar").style.display = "flex";
-    });
-    document.getElementById("settingsClose").addEventListener("click", function () {
-      document.getElementById("settingsBar").style.display = "none";
-    });
 
     document.getElementById("excludeDcBtn").addEventListener("click", function () {
       S.excludeDC = !S.excludeDC;
@@ -822,25 +805,9 @@
 
   // ─── Tableau bootstrap ────────────────────────────────────
   function initializeExtension() {
-    tableau.extensions.initializeAsync({ configure: function () { document.getElementById("settingsBar").style.display = "flex"; } }).then(function () {
-      var dashboard = tableau.extensions.dashboardContent.dashboard;
-      var sel = document.getElementById("worksheetSelect");
-      dashboard.worksheets.forEach(function (ws) {
-        var opt = document.createElement("option");
-        opt.value = ws.name; opt.textContent = ws.name;
-        sel.appendChild(opt);
-      });
-
-      var saved = tableau.extensions.settings.get("worksheet");
-      if (saved) {
-        sel.value = saved;
-        S.worksheetName = saved;
-        loadWorksheetData();
-        registerFilterListeners();
-      } else {
-        document.getElementById("settingsBar").style.display = "flex";
-      }
-
+    tableau.extensions.initializeAsync().then(function () {
+      loadWorksheetData();
+      registerFilterListeners();
       attachEvents();
     }).catch(function (err) {
       console.error("Tableau init failed:", err);
