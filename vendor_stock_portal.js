@@ -709,6 +709,7 @@
           }
           S.data = records;
           if (records[0].vendorName) document.getElementById("reportTitle").textContent = records[0].vendorName;
+          document.getElementById("metaSnapshot").textContent = new Date().toISOString().slice(0, 10);
           hideError(); hideLoading();
           updateAll();
         } catch (innerErr) {
