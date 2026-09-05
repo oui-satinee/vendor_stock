@@ -183,9 +183,6 @@
     worksheetName: "",
     excludeDC: false,
     branchMetric: "amt",
-    search: "",
-    sortCol: null,
-    sortDir: "asc",
     vBranchActiveDims: ["branch"],
     mcActiveDims: ["mch3"]
   };
@@ -539,34 +536,6 @@
     mcExportState = { headers: headers, rows: tableRows };
   }
 
-  // ─── SKU detail table ───────────────────────────────────────
-  function renderDetail(records) {
-    var search = S.search.toLowerCase();
-    var filtered = records.filter(function (d) {
-      if (!search) return true;
-      return (d.articleId + d.articleName + d.branch + d.brand).toLowerCase().indexOf(search) !== -1;
-    });
-    if (S.sortCol) {
-      var col = S.sortCol, dir = S.sortDir === "asc" ? 1 : -1;
-      filtered.sort(function (a, b) {
-        var av = a[col], bv = b[col];
-        if (typeof av === "number") return (av - bv) * dir;
-        return String(av).localeCompare(String(bv)) * dir;
-      });
-    }
-    document.getElementById("rowCount").textContent = fmtInt(filtered.length);
-    var body = document.getElementById("dBody");
-    body.innerHTML = "";
-    filtered.slice(0, 3000).forEach(function (d) {
-      var tr = document.createElement("tr");
-      [d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.classStock,
-       d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "-", fmtInt(d.urQty), fmtTHB(d.urAmt)]
-        .forEach(function (val) { var td = document.createElement("td"); td.textContent = val; tr.appendChild(td); });
-      body.appendChild(tr);
-    });
-    S._filtered = filtered;
-  }
-
   // ─── CSV / XLS export ───────────────────────────────────────
   function csvEscape(v) {
     v = String(v);
@@ -592,16 +561,6 @@
     if (!mcExportState) return;
     downloadCsv(mcExportState.headers, mcExportState.rows, "vendor_mc_breakdown.csv");
   }
-  function exportCsv() {
-    var rows = S._filtered || [];
-    var headers = ["BRANCH", "ARTICLE_ID", "ARTICLE_NAME_TH", "BRAND", "MCH3", "CLASS_STOCK", "AGING_TIER", "UR_QTY", "UR_AMT"];
-    var tableRows = rows.map(function (d) {
-      return [d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.classStock,
-        d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "", d.urQty, d.urAmt];
-    });
-    downloadCsv(headers, tableRows, "vendor_stock_sku_detail.csv");
-  }
-
   function xmlEscape(v) { return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   function xlsSheetXml(name, headers, rows, numericFlags) {
     var xml = '<Worksheet ss:Name="' + xmlEscape(name) + '"><Table>';
@@ -686,8 +645,6 @@
     document.getElementById("turnover").style.display = "";
     drawVendorBranchTO(records);
     renderMcTable(records);
-
-    renderDetail(records);
   }
 
   // ─── Tableau: data loading ────────────────────────────────
@@ -826,7 +783,6 @@
     document.getElementById("branchChartExportBtn").addEventListener("click", branchChartExportCsv);
     document.getElementById("vBranchTOExportBtn").addEventListener("click", vBranchTOExportCsv);
     document.getElementById("mchExportBtn").addEventListener("click", mchExportCsv);
-    document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
 
     [["vBranchDimBranch", "branch"], ["vBranchDimMch3", "mch3"], ["vBranchDimBrand", "brand"]].forEach(function (pair) {
       document.getElementById(pair[0]).addEventListener("click", function () {
@@ -859,19 +815,6 @@
           this.setAttribute("aria-pressed", "true");
         }
         renderMcTable(activeData());
-      });
-    });
-
-    document.getElementById("searchBox").addEventListener("input", function () {
-      S.search = this.value;
-      renderDetail(activeData());
-    });
-    document.querySelectorAll("[data-col]").forEach(function (th) {
-      th.addEventListener("click", function () {
-        var col = th.dataset.col;
-        if (S.sortCol === col) S.sortDir = S.sortDir === "asc" ? "desc" : "asc";
-        else { S.sortCol = col; S.sortDir = "asc"; }
-        renderDetail(activeData());
       });
     });
   }

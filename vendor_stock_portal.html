@@ -301,7 +301,6 @@
   <section id="turnover" style="display:none">
     <div class="section-head">
       <p class="section-kicker">03 — Stock Turnover</p>
-      <p class="section-sub">Turnover (days of supply) = UR_QTY ÷ average daily quantity sold.</p>
     </div>
     <div class="chart-card full">
       <div class="chart-head">
@@ -336,39 +335,6 @@
         </div>
       </div>
       <div class="table-wrap" id="mchFlatTableWrap"></div>
-    </div>
-  </section>
-
-  <section id="skuDetail">
-    <div class="section-head">
-      <p class="section-kicker">04 — SKU Detail</p>
-    </div>
-    <div class="chart-card full">
-      <div class="chart-head">
-        <div><div class="chart-title">รายละเอียดระดับ SKU (<span id="rowCount">0</span>)</div></div>
-        <div class="chart-controls">
-          <input id="searchBox" placeholder="Search article / branch / brand..." style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;width:200px;background:var(--surface);color:var(--text-primary)">
-          <button class="btn btn-icon" id="exportCsvBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
-        </div>
-      </div>
-      <div class="table-wrap" style="max-height:420px;overflow-y:auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th style="text-align:left" data-col="branch">Branch</th>
-              <th style="text-align:left" data-col="articleId">Article ID</th>
-              <th style="text-align:left" data-col="articleName">Article name</th>
-              <th style="text-align:left" data-col="brand">Brand</th>
-              <th style="text-align:left" data-col="mch3">MCH3</th>
-              <th style="text-align:left" data-col="classStock">Class</th>
-              <th style="text-align:left" data-col="agingTier">Aging tier</th>
-              <th data-col="urQty">UR_QTY</th>
-              <th data-col="urAmt">UR_AMT</th>
-            </tr>
-          </thead>
-          <tbody id="dBody"></tbody>
-        </table>
-      </div>
     </div>
   </section>
 

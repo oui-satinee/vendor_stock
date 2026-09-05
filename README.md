@@ -6,9 +6,9 @@ Two related artifacts live in this repo:
    Extension**. Runs inside a Tableau dashboard, reads a worksheet's live data via
    the Extensions API, and renders the same look as `analytics_report.html`
    (dark header bar, KPI tiles, numbered sections, chart/table toggle per card)
-   — KPIs, aging charts, branch breakdown, stock turnover, and a SKU detail
-   table, all computed from live data. This is the one to use if you want the
-   dashboard wired to a real Tableau data source.
+   — KPIs, aging charts, branch breakdown, and stock turnover, all computed
+   from live data. This is the one to use if you want the dashboard wired to
+   a real Tableau data source.
 2. **`vendor-stock-portal-template.html`** — a static, standalone HTML mockup of
    the same layout with placeholder data. Useful for showing the visual design
    without opening Tableau.
@@ -37,7 +37,7 @@ columns (name matching is fuzzy — `SUM(UR_AMT)`, `ur_amt`, `UR Amt` all match)
 | **UR_QTY** | ✅ | Stock quantity |
 | **CLASS_STOCK** | recommended | Class A/B/C/Dead/New/... — powers the Dead Stock KPI and class×aging chart |
 | **AGING_TIER** or **AGING** (numeric days) | recommended | Powers the aging-tier chart and the Aging&gt;180 Days KPI |
-| ARTICLE_NAME_TH, BRAND, MCH3, MCH2, MCH1, MC, ITEM_FLAG | optional | Shown in the SKU detail table / MC breakdown table |
+| ARTICLE_NAME_TH, BRAND, MCH3, MCH2, MCH1, MC, ITEM_FLAG | optional | Shown in the MC breakdown table |
 | IS_DC | optional | Marks distribution-center branches — enables the "Exclude DC" toggle |
 | VENDOR_NAME | optional | Used as the dashboard title if present |
 | AVG_DAILY (average daily quantity sold) | optional | Feeds the turnover-days figure in the **Stock Turnover** section (branch/MCH3/Brand chart + MC breakdown table); the section is always shown — without this column, turnover just reads 0 |
@@ -92,7 +92,6 @@ section-kicker style, same chart-card "View table" toggle, same tooltip):
 - **01 — Stock Aging**: KPI row (total value, UR_QTY, SKU count, dead stock, aging>180d) + aging-tier bar chart + class×aging stacked bar chart with legend
 - **02 — Stock by Branch**: bar chart (toggle UR_AMT / UR_QTY), "Exclude DC" filter when a DC flag is present, CSV export
 - **03 — Stock Turnover**: branch/MCH3/Brand dimension-toggle chart, and an MC breakdown table with a 6-way dimension toggle (MCH3/MCH2/MCH1/MC/Brand/CLASS_STOCK) — both with CSV export. Always shown; turnover reads 0 without an `AVG_DAILY` column
-- **04 — SKU Detail**: searchable/sortable table with CSV export
 - A header "Export" button producing a multi-sheet `.xls` (stock detail, branch summary, and turnover sheets when available) — same approach as the legacy report's full export
 - Auto-refresh on Tableau filter changes; worksheet selection persists in the workbook
 
