@@ -149,10 +149,15 @@
           if (agingDays !== "") tierIdx = bucketAging(parseNumber(agingDays));
         }
 
+        var branch = String(get("branch") || "Unspecified");
+        // Most source systems don't carry an explicit DC flag column — DC
+        // branches are conventionally named with a "DC" prefix/word instead.
+        var isDC = truthy(get("isDc")) || /\bDC\b/i.test(branch);
+
         rows.push({
           vendorId:    String(get("vendorId") || ""),
           vendorName:  String(get("vendorName") || ""),
-          branch:      String(get("branch") || "Unspecified"),
+          branch:      branch,
           articleId:   String(get("articleId") || "ROW-" + (r + 1)),
           articleName: String(get("articleName") || ""),
           brand:       String(get("brand") || ""),
@@ -169,7 +174,7 @@
           reserveQty:  parseNumber(get("reserveQty")),
           remainAmt:   parseNumber(get("remainAmt")),
           remainQty:   parseNumber(get("remainQty")),
-          isDC:        truthy(get("isDc")),
+          isDC:        isDC,
           avgDaily:    parseNumber(get("avgDaily"))
         });
       })();

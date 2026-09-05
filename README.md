@@ -38,7 +38,7 @@ columns (name matching is fuzzy — `SUM(UR_AMT)`, `ur_amt`, `UR Amt` all match)
 | **CLASS_STOCK** | recommended | Class A/B/C/Dead/New/... — powers the Dead Stock KPI and class×aging chart |
 | **AGING_TIER** or **AGING** (numeric days) | recommended | Powers the aging-tier chart and the Aging&gt;180 Days KPI |
 | ARTICLE_NAME_TH, BRAND, MCH3, MCH2, MCH1, MC, ITEM_FLAG | optional | Shown in the MC breakdown table |
-| IS_DC | optional | Marks distribution-center branches — enables the "Exclude DC" toggle |
+| IS_DC | optional | Marks distribution-center branches — enables the "Exclude DC" toggle. Not required: a branch whose name contains the word "DC" (e.g. `DC รังสิต`) is auto-flagged even with no such column, matching the naming convention the legacy report relied on |
 | VENDOR_NAME | optional | Used as the dashboard title if present |
 | AVG_DAILY (average daily quantity sold) | optional | Feeds the turnover-days figure in the **Stock Turnover** section (branch/MCH3/Brand chart + MC breakdown table); the section is always shown — without this column, turnover just reads 0 |
 
