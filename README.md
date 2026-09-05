@@ -40,7 +40,7 @@ columns (name matching is fuzzy — `SUM(UR_AMT)`, `ur_amt`, `UR Amt` all match)
 | ARTICLE_NAME_TH, BRAND, MCH3, MCH2, MCH1, MC, ITEM_FLAG | optional | Shown in the SKU detail table / MC breakdown table |
 | IS_DC | optional | Marks distribution-center branches — enables the "Exclude DC" toggle |
 | VENDOR_NAME | optional | Used as the dashboard title if present |
-| AVG_DAILY (average daily quantity sold) | optional | Enables the whole **Stock Turnover** section (branch/MCH3/Brand chart + MC breakdown table); section is hidden entirely if this column isn't present |
+| AVG_DAILY (average daily quantity sold) | optional | Feeds the turnover-days figure in the **Stock Turnover** section (branch/MCH3/Brand chart + MC breakdown table); the section is always shown — without this column, turnover just reads 0 |
 
 If `AGING_TIER` isn't in the source, the extension buckets the numeric `AGING`
 (days) column into the same 8 tiers as the legacy report
@@ -91,7 +91,7 @@ section-kicker style, same chart-card "View table" toggle, same tooltip):
 - Column auto-detect — no manual field mapping
 - **01 — Stock Aging**: KPI row (total value, UR_QTY, SKU count, dead stock, aging>180d) + aging-tier bar chart + class×aging stacked bar chart with legend
 - **02 — Stock by Branch**: bar chart (toggle UR_AMT / UR_QTY), "Exclude DC" filter when a DC flag is present, CSV export
-- **03 — Stock Turnover** (only shown when `AVG_DAILY` is present): branch/MCH3/Brand dimension-toggle chart, and an MC breakdown table with a 6-way dimension toggle (MCH3/MCH2/MCH1/MC/Brand/CLASS_STOCK) — both with CSV export
+- **03 — Stock Turnover**: branch/MCH3/Brand dimension-toggle chart, and an MC breakdown table with a 6-way dimension toggle (MCH3/MCH2/MCH1/MC/Brand/CLASS_STOCK) — both with CSV export. Always shown; turnover reads 0 without an `AVG_DAILY` column
 - **04 — SKU Detail**: searchable/sortable table with CSV export
 - A header "Export" button producing a multi-sheet `.xls` (stock detail, branch summary, and turnover sheets when available) — same approach as the legacy report's full export
 - Auto-refresh on Tableau filter changes; worksheet selection persists in the workbook

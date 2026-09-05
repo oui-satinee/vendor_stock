@@ -683,12 +683,9 @@
     drawClassAgingChart(records);
     drawBranches(records);
 
-    var hasTurnover = records.some(function (d) { return d.avgDaily > 0; });
-    document.getElementById("turnover").style.display = hasTurnover ? "" : "none";
-    if (hasTurnover) {
-      drawVendorBranchTO(records);
-      renderMcTable(records);
-    }
+    document.getElementById("turnover").style.display = "";
+    drawVendorBranchTO(records);
+    renderMcTable(records);
 
     renderDetail(records);
   }
