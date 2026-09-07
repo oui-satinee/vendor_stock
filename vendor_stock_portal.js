@@ -33,7 +33,8 @@
     isDc:        ["is_dc", "isdc", "dc_flag", "dcflag"],
     avgDaily:    ["avg_daily", "avgdaily", "avg_daily_qty", "daily_sales_qty", "avg_daily_sales"],
     turnoverDays: ["t_o_vendor", "t_o_brand", "t_o", "turnover_days"],
-    skuCount:    ["sku_count", "skucount", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"]
+    skuCount:    ["sku_count", "skucount", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"],
+    populationDate: ["population_date", "populationdate"]
   };
 
   var TIER_LABELS_FULL = [
@@ -209,7 +210,8 @@
           // (no ARTICLE_ID) and carries its own distinct-SKU-count measure
           // per group; 0 otherwise, in which case distinct articleId
           // counting below is used instead.
-          skuCount:    parseNumber(get("skuCount"))
+          skuCount:    parseNumber(get("skuCount")),
+          populationDate: get("populationDate")
         });
       })();
     }
@@ -265,6 +267,14 @@
     if (days >= 1000) return (days / 1000).toFixed(1) + "K วัน";
     if (days < 10) return days.toFixed(1) + " วัน";
     return Math.round(days) + " วัน";
+  }
+  // The header's Snapshot Date reflects "Population Date" from the aging
+  // data itself (when Tableau's field returns one), not the viewer's local
+  // clock — falls back to "" (caller uses today's date) if unparseable.
+  function formatSnapshotDate(raw) {
+    if (!raw) return "";
+    var d = raw instanceof Date ? raw : new Date(raw);
+    return isNaN(d.getTime()) ? String(raw) : d.toISOString().slice(0, 10);
   }
 
   // ─── UI helpers ───────────────────────────────────────────
@@ -920,10 +930,10 @@
 
   // Summary of what each summary sheet actually produced — worksheet
   // found?, raw Tableau row count, how many rows survived extraction, which
-  // fields got column-mapped, and any aging_detail fallback used. Kept
-  // hidden by default (its container's CSS is display:none) now that the
-  // aging-tier issue is resolved; still populated so it can be inspected via
-  // dev tools (or shown again by removing the display:none) if needed.
+  // fields got column-mapped, and any fallback used. Always hidden (its
+  // container's CSS is display:none) per user request, even while a
+  // fallback is active — still populated every load, so it stays
+  // inspectable via dev tools if the aging-tier issue needs revisiting.
   function renderDiagInfo(agingDiag, stockDiag) {
     function line(name, diag) {
       if (!diag.found) return name + ": worksheet not found";
@@ -941,10 +951,6 @@
     var el = document.getElementById("diagInfo");
     el.textContent = "all worksheets on this dashboard: " + allNames + "\n" +
       line(AGING_SHEET_NAME, agingDiag) + "\n" + line(STOCK_SHEET_NAME, stockDiag);
-    // Stays hidden in the normal case; auto-reveals itself when a fallback
-    // had to kick in, since that's exactly the situation where seeing raw
-    // column names without dev tools matters most.
-    el.style.display = agingDiag.fallback || stockDiag.fallback ? "block" : "none";
   }
 
   function loadAllData() {
@@ -965,7 +971,8 @@
 
         var titleSource = S.agingData[0] || S.stockData[0];
         if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
-        document.getElementById("metaSnapshot").textContent = new Date().toISOString().slice(0, 10);
+        document.getElementById("metaSnapshot").textContent =
+          formatSnapshotDate(titleSource && titleSource.populationDate) || new Date().toISOString().slice(0, 10);
 
         var missing = [];
         if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
