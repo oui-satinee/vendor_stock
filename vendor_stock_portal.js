@@ -818,11 +818,25 @@
       var missing = [];
       if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
       if (!stockWs) missing.push('"' + STOCK_SHEET_NAME + '"');
+
+      // Found the worksheet, but it produced zero usable rows — different
+      // problem than "not found", and silent otherwise, so call it out
+      // explicitly instead of just showing an empty section.
+      var empty = [];
+      if (agingWs && results[0].length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
+      if (stockWs && results[1].length === 0) empty.push('"' + STOCK_SHEET_NAME + '"');
+
       hideLoading();
       if (missing.length) {
         showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
           ". Add a worksheet object named exactly that (case-insensitive) — " +
           '"' + AGING_SHEET_NAME + '" feeds section 01, "' + STOCK_SHEET_NAME + '" feeds sections 02-03.');
+      } else if (empty.length) {
+        showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
+          ". Every row needs UR_AMT or UR_QTY to be non-zero — check that those fields are actually " +
+          "placed on the worksheet (on the Marks card, e.g. as Detail), not just present in the data " +
+          "source. Open the browser dev console for a \"[VendorStockPortal] columns detected\" log " +
+          "showing exactly which columns were matched.");
       } else {
         hideError();
       }
