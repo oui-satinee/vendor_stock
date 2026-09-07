@@ -24,22 +24,10 @@ vendor_stock_portal.js             # extension logic (IIFE)
 tableau.extensions.1.latest.js     # Tableau Extensions API (local copy)
 ```
 
-### Data requirements — two worksheets, looked up by name
+### Data requirements
 
-No manual worksheet picker. The extension looks for two worksheet objects on
-the dashboard by **exact name (case-insensitive)**:
-
-| Worksheet name | Feeds | Notes |
-|---|---|---|
-| **`aging`** | KPI row + section **01 — Stock Aging** | Needs `CLASS_STOCK`/`AGING_TIER`/`AGING` |
-| **`stock`** | section **02 — Stock by Branch** + section **03 — Stock Turnover** | Needs `BRAND`/`MCH3`/etc. for the breakdown dimensions |
-
-Either can be missing — the corresponding section(s) just don't render (a
-non-blocking error banner names which one), so a dashboard with only one of
-the two still shows a partial view. If neither is found, nothing renders.
-
-Column matching within each sheet is fuzzy — `SUM(UR_AMT)`, `ur_amt`, `UR Amt`
-all match the same field:
+Point it at a worksheet containing SKU/branch-level stock rows with these
+columns (name matching is fuzzy — `SUM(UR_AMT)`, `ur_amt`, `UR Amt` all match):
 
 | Field | Required | Description |
 |---|---|---|
@@ -47,12 +35,12 @@ all match the same field:
 | **ARTICLE_ID** | ✅ | SKU code |
 | **UR_AMT** (or `UR_COST_AMT`) | ✅ | Stock value |
 | **UR_QTY** | ✅ | Stock quantity |
-| **CLASS_STOCK** | recommended (`aging` sheet) | Class A/B/C/Dead/New/... — powers the Dead Stock KPI and class×aging chart |
-| **AGING_TIER** or **AGING** (numeric days) | recommended (`aging` sheet) | Powers the aging-tier chart and the Aging&gt;180 Days KPI |
-| ARTICLE_NAME_TH, BRAND, MCH3, MCH2, MCH1, MC, ITEM_FLAG | optional | Shown in the MC breakdown table (`stock` sheet) |
-| IS_DC | optional | Marks distribution-center branches — enables the "Exclude DC" toggle, which filters both sheets together. Not required: a branch whose name contains the word "DC" (e.g. `DC รังสิต`) is auto-flagged even with no such column, matching the naming convention the legacy report relied on |
-| VENDOR_NAME | optional | Used as the dashboard title if present (checked on the `aging` sheet first, then `stock`) |
-| AVG_DAILY (average daily quantity sold) | optional (`stock` sheet) | Feeds the turnover-days figure in section 03; the section is always shown when the `stock` sheet is found — without this column, turnover just reads 0 |
+| **CLASS_STOCK** | recommended | Class A/B/C/Dead/New/... — powers the Dead Stock KPI and class×aging chart |
+| **AGING_TIER** or **AGING** (numeric days) | recommended | Powers the aging-tier chart and the Aging&gt;180 Days KPI |
+| ARTICLE_NAME_TH, BRAND, MCH3, MCH2, MCH1, MC, ITEM_FLAG | optional | Shown in the MC breakdown table |
+| IS_DC | optional | Marks distribution-center branches — enables the "Exclude DC" toggle. Not required: a branch whose name contains the word "DC" (e.g. `DC รังสิต`) is auto-flagged even with no such column, matching the naming convention the legacy report relied on |
+| VENDOR_NAME | optional | Used as the dashboard title if present |
+| AVG_DAILY (average daily quantity sold) | optional | Feeds the turnover-days figure in the **Stock Turnover** section (branch/MCH3/Brand chart + MC breakdown table); the section is always shown — without this column, turnover just reads 0 |
 
 If `AGING_TIER` isn't in the source, the extension buckets the numeric `AGING`
 (days) column into the same 8 tiers as the legacy report
@@ -60,7 +48,7 @@ If `AGING_TIER` isn't in the source, the extension buckets the numeric `AGING`
 
 Turnover is expressed as **days of supply** (`UR_QTY ÷ AVG_DAILY`), matching
 the legacy report's definition — not a computed sales-turnover ratio, since
-that requires a sales fact table the `stock` sheet doesn't have.
+that requires a sales fact table this single worksheet doesn't have.
 
 ### Production (GitHub Pages) — current default
 
@@ -76,9 +64,13 @@ server needed. In Tableau Desktop: open a workbook with vendor stock data →
 build a dashboard containing that worksheet → **Objects → Extensions** → pick
 `VendorStockPortal.trex`.
 
-**No configuration step** — the extension looks for worksheet objects named
-`aging` and `stock` on the dashboard (see Data requirements above) and loads
-them both automatically.
+**No configuration step** — there's no worksheet picker. The extension
+auto-loads from whatever worksheet object(s) are placed on the dashboard next
+to it. With exactly one worksheet, that one is used. With more than one, it
+uses the **last one in Tableau's worksheet list** (the closest available
+proxy for "most recently placed" — the Extensions API doesn't expose a true
+placement timestamp), so if you need a specific sheet, arrange for it to be
+the last one added, or keep just one worksheet on that dashboard.
 
 **Caveat:** every push to `main` updates the live Pages URL (usually within a
 minute). Re-adding the extension always fetches the latest version — there's
@@ -104,12 +96,11 @@ CSS, same "01 — Stock Aging" / "02 — Stock by Branch" / "03 — Stock Turnov
 section-kicker style, same chart-card "View table" toggle, same tooltip):
 
 - Column auto-detect — no manual field mapping
-- Two independent worksheets (`aging`, `stock`) looked up by name — each section only needs its own sheet to render; the other can be absent
-- **01 — Stock Aging** (from `aging`): KPI row (total value, UR_QTY, SKU count, dead stock, aging>180d) + aging-tier bar chart + class×aging stacked bar chart with legend
-- **02 — Stock by Branch** (from `stock`): bar chart (toggle UR_AMT / UR_QTY), "Exclude DC" filter when a DC flag is present, CSV export
-- **03 — Stock Turnover** (from `stock`): branch/MCH3/Brand dimension-toggle chart, and an MC breakdown table with a 6-way dimension toggle (MCH3/MCH2/MCH1/MC/Brand/CLASS_STOCK) — both with CSV export. Turnover reads 0 without an `AVG_DAILY` column
-- A header "Export" button producing a multi-sheet `.xls` (aging detail, branch summary, and turnover sheets, each included only when its source sheet was found)
-- No configuration UI — auto-loads `aging`/`stock` by name; auto-refreshes on Tableau filter changes on any worksheet on the dashboard
+- **01 — Stock Aging**: KPI row (total value, UR_QTY, SKU count, dead stock, aging>180d) + aging-tier bar chart + class×aging stacked bar chart with legend
+- **02 — Stock by Branch**: bar chart (toggle UR_AMT / UR_QTY), "Exclude DC" filter when a DC flag is present, CSV export
+- **03 — Stock Turnover**: branch/MCH3/Brand dimension-toggle chart, and an MC breakdown table with a 6-way dimension toggle (MCH3/MCH2/MCH1/MC/Brand/CLASS_STOCK) — both with CSV export. Always shown; turnover reads 0 without an `AVG_DAILY` column
+- A header "Export" button producing a multi-sheet `.xls` (stock detail, branch summary, and turnover sheets when available) — same approach as the legacy report's full export
+- No configuration UI — auto-loads from whichever worksheet(s) are on the dashboard; auto-refreshes on Tableau filter changes
 
 ## Data dictionary (legacy report → Tableau data source)
 
@@ -124,10 +115,9 @@ the Tableau data source that feeds the extension above:
 | Turnover by Branch | branch × MCH3 | `VENDOR_ID, VENDOR_NAME, BRANCH, MCH3, UR_QTY, T_O, UR_QTY_DEAD, PCT_DEAD, T_O_VENDOR` |
 | Turnover by Brand | MCH3 × brand × class | `VENDOR_ID, VENDOR_NAME, MCH3, BRAND, CLASS_STOCK, UR_QTY, T_O, T_O_BRAND` |
 
-The extension's `aging` worksheet maps to the **Stock Aging** grain above, and
-`stock` maps to **Stock by Branch** (plus `AVG_DAILY` for the turnover
-calculation, in place of the legacy `T_O` column). Cross-vendor rollups still
-aren't wired in — that would need a third worksheet.
+The extension currently reads the **Stock Aging** grain (the richest single
+table); turnover (`T_O`) and cross-vendor rollups aren't wired in yet since they
+need a second worksheet/table.
 
 ## License
 
