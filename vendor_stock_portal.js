@@ -35,7 +35,8 @@
     turnoverDays: ["t_o_vendor", "t_o_brand", "t_o", "turnover_days"],
     skuCount:    ["sku_count", "skucount", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"],
     populationDate: ["population_date", "populationdate"],
-    urQtyDead:   ["ur_qty_dead", "urqtydead"]
+    urQtyDead:   ["ur_qty_dead", "urqtydead"],
+    tileSize:    ["tile_size", "tilesize"]
   };
 
   var TIER_LABELS_FULL = [
@@ -167,11 +168,9 @@
         var urQty = parseNumber(get("urQty"));
         if (urAmt === 0 && urQty === 0) return;
 
+        var agingDaysRaw = get("aging");
         var tierIdx = matchTierLabel(get("agingTier"));
-        if (tierIdx === -1) {
-          var agingDays = get("aging");
-          if (agingDays !== "") tierIdx = bucketAging(parseNumber(agingDays));
-        }
+        if (tierIdx === -1 && agingDaysRaw !== "") tierIdx = bucketAging(parseNumber(agingDaysRaw));
 
         var branch = String(get("branch") || "Unspecified");
         // Most source systems don't carry an explicit DC flag column — DC
@@ -193,6 +192,7 @@
           articleName: String(get("articleName") || ""),
           brand:       String(get("brand") || ""),
           mch3:        String(get("mch3") || ""),
+          tileSize:    String(get("tileSize") || ""),
           mch2:        String(get("mch2") || ""),
           mch1:        String(get("mch1") || ""),
           mc:          String(get("mc") || ""),
@@ -213,7 +213,8 @@
           // counting below is used instead.
           skuCount:    parseNumber(get("skuCount")),
           populationDate: get("populationDate"),
-          urQtyDead:   parseNumber(get("urQtyDead"))
+          urQtyDead:   parseNumber(get("urQtyDead")),
+          agingDays:   parseNumber(agingDaysRaw)
         });
       })();
     }
@@ -692,12 +693,12 @@
         var sheets = "";
 
         if (agingRecords.length > 0) {
-          var detailHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "ARTICLE_ID", "ARTICLE_NAME_TH", "BRAND", "MCH3", "MCH2", "ITEM_FLAG", "CLASS_STOCK", "AGING_TIER", "UR_QTY", "UR_AMT"];
+          var detailHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "ARTICLE_ID", "ARTICLE_NAME_TH", "BRAND", "MCH3", "TILE_SIZE", "MCH2", "ITEM_FLAG", "CLASS_STOCK", "AGING_TIER", "AGING", "UR_QTY", "UR_AMT", "POPULATION_DATE"];
           var detailRows = agingRecords.map(function (d) {
-            return [d.vendorId, d.vendorName, d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.mch2, d.itemFlag, d.classStock,
-              d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "", d.urQty, d.urAmt];
+            return [d.vendorId, d.vendorName, d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.tileSize, d.mch2, d.itemFlag, d.classStock,
+              d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "", d.agingDays, d.urQty, d.urAmt, formatSnapshotDate(d.populationDate)];
           });
-          sheets += xlsSheetXml("Stock aging", detailHeaders, detailRows, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
+          sheets += xlsSheetXml("Stock aging", detailHeaders, detailRows, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0]);
         }
 
         if (stockRecords.length > 0) {
@@ -714,14 +715,14 @@
           var hasTurnover = stockRecords.some(function (d) { return d.avgDaily > 0; });
           if (hasTurnover) {
             var branchTO = aggregateByDims(stockRecords, ["branch", "mch3"]).sort(function (a, b) { return b.value - a.value; });
-            var toHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS", "UR_QTY_DEAD", "POPULATION_DATE"];
+            var toHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "UR_AMT", "UR_QTY", "TURNOVER_DAYS", "UR_QTY_DEAD", "POPULATION_DATE"];
             var toRows = branchTO.map(function (d) {
               return [stockVendorId, stockVendorName, d.branch, d.mch3, d.value, d.qty, Math.round(d.to * 10) / 10, d.qtyDead, stockSnapshotDate];
             });
             sheets += xlsSheetXml("Turnover by branch", toHeaders, toRows, [0, 0, 0, 0, 1, 1, 1, 1, 0]);
 
             var brandTO = aggregateByDims(stockRecords, ["mch3", "brand", "classStock"]).sort(function (a, b) { return b.value - a.value; });
-            var brandHeaders = ["VENDOR_ID", "VENDOR_NAME", "MCH3", "BRAND", "CLASS_STOCK", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS", "POPULATION_DATE"];
+            var brandHeaders = ["VENDOR_ID", "VENDOR_NAME", "MCH3", "BRAND", "CLASS_STOCK", "UR_AMT", "UR_QTY", "TURNOVER_DAYS", "POPULATION_DATE"];
             var brandRows = brandTO.map(function (d) {
               return [stockVendorId, stockVendorName, d.mch3, d.brand, d.classStock, d.value, d.qty, Math.round(d.to * 10) / 10, stockSnapshotDate];
             });
