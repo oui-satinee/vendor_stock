@@ -652,81 +652,98 @@
     var agingDetailDiag = {};
 
     Promise.all([readWorksheetRecords(agingDetailWs, agingDetailDiag), readWorksheetRecords(stockDetailWs)]).then(function (results) {
-      hideLoading();
-
-      var agingRecords = S.excludeDC ? results[0].filter(function (d) { return !d.isDC; }) : results[0];
       var stockRecords = S.excludeDC ? results[1].filter(function (d) { return !d.isDC; }) : results[1];
+      var summaryAgingRecords = S.excludeDC ? results[0].filter(function (d) { return !d.isDC; }) : results[0];
 
-      // AGING_TIER has repeatedly come back unresolved even on sheets that
-      // visibly show it correctly in Tableau Desktop (see AGING_TIER
-      // debugging history) — surface exactly how many rows actually
-      // resolved a tier at export time, since that's the ground truth the
-      // no-dev-tools Tableau Desktop webview otherwise hides.
-      var tierResolved = agingRecords.filter(function (d) { return d.tierIdx >= 0; }).length;
-      var tierWarning = "";
-      if (agingRecords.length > 0 && tierResolved < agingRecords.length) {
-        tierWarning = "AGING_TIER resolved on " + tierResolved + " of " + agingRecords.length + " exported rows. " +
+      function buildTierWarning(records, sourceLabel) {
+        var resolved = tierResolvedCount(records);
+        if (records.length === 0 || resolved === records.length) return "";
+        return "AGING_TIER resolved on " + resolved + " of " + records.length + " exported rows (source: " + sourceLabel + "). " +
           "Raw columns Tableau returned for \"" + AGING_DETAIL_SHEET_NAME + "\": " +
           (agingDetailDiag.rawColumnNames ? agingDetailDiag.rawColumnNames.join(" | ") : "(none)") + ".";
       }
 
-      var missing = [];
-      if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
-      if (!stockDetailWs) missing.push('"' + STOCK_DETAIL_SHEET_NAME + '"');
+      function finishExport(agingRecords, tierWarning) {
+        hideLoading();
 
-      if (agingRecords.length === 0 && stockRecords.length === 0) {
-        showError("Export needs worksheet(s) named " +
-          '"' + AGING_DETAIL_SHEET_NAME + '" and/or "' + STOCK_DETAIL_SHEET_NAME + '" on this dashboard — neither was found.');
-        return;
-      }
+        var missing = [];
+        if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
+        if (!stockDetailWs) missing.push('"' + STOCK_DETAIL_SHEET_NAME + '"');
 
-      var sheets = "";
+        if (agingRecords.length === 0 && stockRecords.length === 0) {
+          showError("Export needs worksheet(s) named " +
+            '"' + AGING_DETAIL_SHEET_NAME + '" and/or "' + STOCK_DETAIL_SHEET_NAME + '" on this dashboard — neither was found.');
+          return;
+        }
 
-      if (agingRecords.length > 0) {
-        var detailHeaders = ["BRANCH", "ARTICLE_ID", "ARTICLE_NAME_TH", "BRAND", "MCH3", "MCH2", "ITEM_FLAG", "CLASS_STOCK", "AGING_TIER", "UR_QTY", "UR_AMT"];
-        var detailRows = agingRecords.map(function (d) {
-          return [d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.mch2, d.itemFlag, d.classStock,
-            d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "", d.urQty, d.urAmt];
-        });
-        sheets += xlsSheetXml("Stock aging detail", detailHeaders, detailRows, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
-      }
+        var sheets = "";
 
-      if (stockRecords.length > 0) {
-        var branchRows = computeBranches(stockRecords);
-        var branchHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "SKU_COUNT"];
-        var branchXlsRows = branchRows.map(function (d) { return [d.branch, d.value, d.qty, d.sku]; });
-        sheets += xlsSheetXml("Branch summary", branchHeaders, branchXlsRows, [0, 1, 1, 1]);
+        if (agingRecords.length > 0) {
+          var detailHeaders = ["BRANCH", "ARTICLE_ID", "ARTICLE_NAME_TH", "BRAND", "MCH3", "MCH2", "ITEM_FLAG", "CLASS_STOCK", "AGING_TIER", "UR_QTY", "UR_AMT"];
+          var detailRows = agingRecords.map(function (d) {
+            return [d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.mch2, d.itemFlag, d.classStock,
+              d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "", d.urQty, d.urAmt];
+          });
+          sheets += xlsSheetXml("Stock aging detail", detailHeaders, detailRows, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
+        }
 
-        var hasTurnover = stockRecords.some(function (d) { return d.avgDaily > 0; });
-        if (hasTurnover) {
-          var branchTO = aggregateByDims(stockRecords, ["branch"]).sort(function (a, b) { return b.value - a.value; });
-          var toHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
-          var toRows = branchTO.map(function (d) { return [d.branch, d.value, d.qty, Math.round(d.to * 10) / 10]; });
-          sheets += xlsSheetXml("Turnover by branch", toHeaders, toRows, [0, 1, 1, 1]);
+        if (stockRecords.length > 0) {
+          var branchRows = computeBranches(stockRecords);
+          var branchHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "SKU_COUNT"];
+          var branchXlsRows = branchRows.map(function (d) { return [d.branch, d.value, d.qty, d.sku]; });
+          sheets += xlsSheetXml("Branch summary", branchHeaders, branchXlsRows, [0, 1, 1, 1]);
 
-          var mcTO = aggregateByDims(stockRecords, ["mch3"]).sort(function (a, b) { return b.value - a.value; });
-          var mcHeaders = ["MCH3", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
-          var mcRows = mcTO.map(function (d) { return [d.mch3, d.value, d.qty, Math.round(d.to * 10) / 10]; });
-          sheets += xlsSheetXml("Turnover by MC", mcHeaders, mcRows, [0, 1, 1, 1]);
+          var hasTurnover = stockRecords.some(function (d) { return d.avgDaily > 0; });
+          if (hasTurnover) {
+            var branchTO = aggregateByDims(stockRecords, ["branch"]).sort(function (a, b) { return b.value - a.value; });
+            var toHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
+            var toRows = branchTO.map(function (d) { return [d.branch, d.value, d.qty, Math.round(d.to * 10) / 10]; });
+            sheets += xlsSheetXml("Turnover by branch", toHeaders, toRows, [0, 1, 1, 1]);
+
+            var mcTO = aggregateByDims(stockRecords, ["mch3"]).sort(function (a, b) { return b.value - a.value; });
+            var mcHeaders = ["MCH3", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
+            var mcRows = mcTO.map(function (d) { return [d.mch3, d.value, d.qty, Math.round(d.to * 10) / 10]; });
+            sheets += xlsSheetXml("Turnover by MC", mcHeaders, mcRows, [0, 1, 1, 1]);
+          }
+        }
+
+        var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
+          '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">' +
+          '<Styles><Style ss:ID="Header"><Font ss:Bold="1"/></Style></Styles>' + sheets + "</Workbook>";
+
+        var blob = new Blob([xml], { type: "application/vnd.ms-excel" });
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob); a.download = "vendor_stock_full_export.xls";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+
+        if (missing.length) {
+          showError("Export completed, but worksheet(s) not found: " + missing.join(", ") +
+            " — that part of the export was skipped.");
+        } else if (tierWarning) {
+          showError("Export completed, but not every row could show an aging tier. " + tierWarning);
         }
       }
 
-      var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
-        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">' +
-        '<Styles><Style ss:ID="Header"><Font ss:Bold="1"/></Style></Styles>' + sheets + "</Workbook>";
-
-      var blob = new Blob([xml], { type: "application/vnd.ms-excel" });
-      var a = document.createElement("a");
-      a.href = URL.createObjectURL(blob); a.download = "vendor_stock_full_export.xls";
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
-
-      if (missing.length) {
-        showError("Export completed, but worksheet(s) not found: " + missing.join(", ") +
-          " — that part of the export was skipped.");
-      } else if (tierWarning) {
-        showError("Export completed, but not every row could show an aging tier. " + tierWarning);
+      // AGING_TIER has repeatedly come back unresolved via the summary API
+      // even on sheets confirmed to carry it as a plain, un-blended field —
+      // if that happened here too, try reading straight from the
+      // underlying table(s) before giving up.
+      if (tierResolvedCount(summaryAgingRecords) > 0 || summaryAgingRecords.length === 0) {
+        finishExport(summaryAgingRecords, buildTierWarning(summaryAgingRecords, AGING_DETAIL_SHEET_NAME));
+        return;
       }
+
+      readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
+        if (tierResolvedCount(underlyingRecords) > 0) {
+          var filtered = S.excludeDC ? underlyingRecords.filter(function (d) { return !d.isDC; }) : underlyingRecords;
+          finishExport(filtered, buildTierWarning(filtered, AGING_DETAIL_SHEET_NAME + " (underlying table)"));
+        } else {
+          finishExport(summaryAgingRecords, "AGING_TIER resolved on 0 of " + summaryAgingRecords.length +
+            " exported rows, and reading the underlying table(s) directly didn't help either. Underlying tables tried: " +
+            (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".");
+        }
+      });
     }).catch(function (err) {
       hideLoading();
       showError("Could not load data for export: " + (err.message || err));
@@ -846,14 +863,59 @@
     });
   }
 
+  function tierResolvedCount(records) {
+    var n = 0;
+    for (var i = 0; i < records.length; i++) if (records[i].tierIdx >= 0) n++;
+    return n;
+  }
+
   // True when a sheet has rows but not one of them resolved an aging tier —
-  // the signature of AGING_TIER either being absent from the sheet, or (as
-  // seen in practice) present on-screen in Tableau Desktop but blended in
-  // from a *different* data source than the sheet's own primary, which the
-  // Extensions API's summary-data calls silently drop from the columns they
-  // return even though Desktop renders the pill fine.
+  // AGING_TIER has been confirmed, across this codebase's debugging
+  // history, to sometimes be dropped by the Extensions API's summary-data
+  // calls even when it's a plain (non-table-calc) calculated field living
+  // in the sheet's own primary, un-blended data source and rendering fine
+  // in Tableau Desktop. The exact mechanism is unconfirmed; this only
+  // detects the symptom so callers can try a more direct read.
   function agingTierTotallyUnresolved(records) {
-    return records.length > 0 && !records.some(function (d) { return d.tierIdx >= 0; });
+    return records.length > 0 && tierResolvedCount(records) === 0;
+  }
+
+  // Last-resort read: bypass the worksheet's visual summary aggregation
+  // entirely and pull rows straight from its underlying data-source
+  // table(s) with every column included, not just the ones on a shelf.
+  // Tried only after getSummaryDataAsync/getSummaryDataReaderAsync have
+  // already failed to surface AGING_TIER, since it's heavier (no
+  // view-level filtering/aggregation) and there's no guarantee a given
+  // underlying table also carries the value/qty columns needed to keep a
+  // row (extractRecords drops rows where both are 0) — diagOut.underlying*
+  // records what was tried either way, for the diagnostic panel/export
+  // warning to report even when this comes up empty.
+  function readUnderlyingAgingRecords(ws, diagOut) {
+    if (!ws || typeof ws.getUnderlyingTablesAsync !== "function") return Promise.resolve([]);
+    return ws.getUnderlyingTablesAsync().then(function (tables) {
+      return Promise.all(tables.map(function (t) {
+        return ws.getUnderlyingTableDataAsync(t.id, { includeAllColumns: true }).then(function (dataTable) {
+          var tableDiag = {};
+          var records = extractRecords(dataTable, tableDiag);
+          return { table: t, records: records, diag: tableDiag };
+        }).catch(function (err) {
+          return { table: t, records: [], diag: { error: err.message || String(err) } };
+        });
+      }));
+    }).then(function (perTable) {
+      if (diagOut) {
+        diagOut.underlyingAttempts = perTable.map(function (r) {
+          return (r.table.caption || r.table.id) + ": " + r.records.length + " rows, raw columns: " +
+            (r.diag.rawColumnNames ? r.diag.rawColumnNames.join(" | ") : (r.diag.error || "(none)"));
+        });
+      }
+      var best = [], bestScore = -1;
+      perTable.forEach(function (r) {
+        var score = tierResolvedCount(r.records);
+        if (score > bestScore) { bestScore = score; best = r.records; }
+      });
+      return best;
+    }).catch(function () { return []; });
   }
 
   // Summary of what each summary sheet actually produced — worksheet
@@ -879,6 +941,10 @@
     var el = document.getElementById("diagInfo");
     el.textContent = "all worksheets on this dashboard: " + allNames + "\n" +
       line(AGING_SHEET_NAME, agingDiag) + "\n" + line(STOCK_SHEET_NAME, stockDiag);
+    // Stays hidden in the normal case; auto-reveals itself when a fallback
+    // had to kick in, since that's exactly the situation where seeing raw
+    // column names without dev tools matters most.
+    el.style.display = agingDiag.fallback || stockDiag.fallback ? "block" : "none";
   }
 
   function loadAllData() {
@@ -930,26 +996,35 @@
       }
 
       // "aging" produced rows but not one of them has a resolvable tier —
-      // fall back to "aging_detail" (SKU-grain, otherwise only read on
-      // Export) which is the sheet confirmed to carry AGING_TIER from its
-      // own primary data source rather than blended in from elsewhere.
-      if (agingTierTotallyUnresolved(agingRecords)) {
-        var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
-        var agingDetailDiag = {};
-        readWorksheetRecords(agingDetailWs, agingDetailDiag).then(function (detailRecords) {
-          if (detailRecords.length > 0 && !agingTierTotallyUnresolved(detailRecords)) {
-            agingDiag.fallback = 'AGING_TIER unresolved on every row — used "' + AGING_DETAIL_SHEET_NAME +
-              '" instead (' + (agingDetailDiag.rawRows || 0) + " raw rows -> " + detailRecords.length + " usable rows).";
-            agingRecords = detailRecords;
+      // try "aging_detail" (SKU-grain, otherwise only read on Export) next,
+      // then, if that's no better, read straight from aging_detail's
+      // underlying table(s), bypassing summary aggregation entirely.
+      if (!agingTierTotallyUnresolved(agingRecords)) { finish(); return; }
+
+      var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
+      var agingDetailDiag = {};
+      readWorksheetRecords(agingDetailWs, agingDetailDiag).then(function (detailRecords) {
+        if (tierResolvedCount(detailRecords) > 0) {
+          agingDiag.fallback = 'AGING_TIER unresolved on every row of "' + AGING_SHEET_NAME + '" — used "' + AGING_DETAIL_SHEET_NAME +
+            '" instead (' + tierResolvedCount(detailRecords) + " of " + detailRecords.length + " rows resolved a tier).";
+          agingRecords = detailRecords;
+          finish();
+          return;
+        }
+
+        readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
+          if (tierResolvedCount(underlyingRecords) > 0) {
+            agingDiag.fallback = 'AGING_TIER unresolved via getSummaryDataAsync on every sheet tried — used underlying table data for "' +
+              AGING_DETAIL_SHEET_NAME + '" instead (' + tierResolvedCount(underlyingRecords) + " of " + underlyingRecords.length + " rows resolved a tier).";
+            agingRecords = underlyingRecords;
           } else {
-            agingDiag.fallback = 'AGING_TIER unresolved on every row, and the "' + AGING_DETAIL_SHEET_NAME +
-              '" fallback did not help either (found: ' + !!agingDetailWs + ", usable rows: " + detailRecords.length + ").";
+            agingDiag.fallback = 'AGING_TIER never resolved — tried "' + AGING_SHEET_NAME + '", "' + AGING_DETAIL_SHEET_NAME +
+              '" (summary), and its underlying table(s) directly. Underlying tables tried: ' +
+              (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".";
           }
           finish();
         });
-      } else {
-        finish();
-      }
+      });
     }).catch(function (err) {
       showError("Could not load data from Tableau: " + (err.message || err));
       hideLoading();
