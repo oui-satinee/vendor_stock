@@ -31,7 +31,8 @@
     remainAmt:   ["remain_amt", "remainamt"],
     remainQty:   ["remain_qty", "remainqty"],
     isDc:        ["is_dc", "isdc", "dc_flag", "dcflag"],
-    avgDaily:    ["avg_daily", "avgdaily", "avg_daily_qty", "daily_sales_qty", "avg_daily_sales"]
+    avgDaily:    ["avg_daily", "avgdaily", "avg_daily_qty", "daily_sales_qty", "avg_daily_sales"],
+    turnoverDays: ["t_o_vendor", "t_o_brand", "t_o", "turnover_days"]
   };
 
   var TIER_LABELS_FULL = [
@@ -154,6 +155,13 @@
         // branches are conventionally named with a "DC" prefix/word instead.
         var isDC = truthy(get("isDc")) || /\bDC\b/i.test(branch);
 
+        // Turnover: prefer a direct T_O (days of supply) column when present,
+        // back-deriving the equivalent average-daily-quantity from it so the
+        // existing qty-weighted aggregation (sum(qty)/sum(avgDaily)) still
+        // applies unchanged. Falls back to a raw AVG_DAILY column otherwise.
+        var turnoverDays = parseNumber(get("turnoverDays"));
+        var avgDaily = turnoverDays > 0 ? (urQty / turnoverDays) : parseNumber(get("avgDaily"));
+
         rows.push({
           vendorId:    String(get("vendorId") || ""),
           vendorName:  String(get("vendorName") || ""),
@@ -175,7 +183,7 @@
           remainAmt:   parseNumber(get("remainAmt")),
           remainQty:   parseNumber(get("remainQty")),
           isDC:        isDC,
-          avgDaily:    parseNumber(get("avgDaily"))
+          avgDaily:    avgDaily
         });
       })();
     }

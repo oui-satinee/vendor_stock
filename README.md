@@ -40,15 +40,18 @@ columns (name matching is fuzzy — `SUM(UR_AMT)`, `ur_amt`, `UR Amt` all match)
 | ARTICLE_NAME_TH, BRAND, MCH3, MCH2, MCH1, MC, ITEM_FLAG | optional | Shown in the MC breakdown table |
 | IS_DC | optional | Marks distribution-center branches — enables the "Exclude DC" toggle. Not required: a branch whose name contains the word "DC" (e.g. `DC รังสิต`) is auto-flagged even with no such column, matching the naming convention the legacy report relied on |
 | VENDOR_NAME | optional | Used as the dashboard title if present |
-| AVG_DAILY (average daily quantity sold) | optional | Feeds the turnover-days figure in the **Stock Turnover** section (branch/MCH3/Brand chart + MC breakdown table); the section is always shown — without this column, turnover just reads 0 |
+| **T_O** (or `T_O_VENDOR`/`T_O_BRAND`) — preferred — or **AVG_DAILY** (average daily quantity sold) | optional | Feeds the turnover-days figure in the **Stock Turnover** section (branch/MCH3/Brand chart + MC breakdown table); the section is always shown — without either column, turnover just reads 0 |
 
 If `AGING_TIER` isn't in the source, the extension buckets the numeric `AGING`
 (days) column into the same 8 tiers as the legacy report
 (0–60, 61–90, 91–120, 121–150, 151–180, 181–270, 271–360, >361 days).
 
-Turnover is expressed as **days of supply** (`UR_QTY ÷ AVG_DAILY`), matching
-the legacy report's definition — not a computed sales-turnover ratio, since
-that requires a sales fact table this single worksheet doesn't have.
+Turnover is expressed as **days of supply**. If the worksheet has a direct
+`T_O`-style column (matching the legacy report's own turnover column), that
+value is used as-is per row, and rows are combined with a qty-weighted
+aggregation when grouped (`sum(qty) ÷ sum(qty/T_O)`, so a group's turnover
+isn't just a naive average of its rows' T_O values). Without a `T_O` column,
+it falls back to computing `UR_QTY ÷ AVG_DAILY` instead.
 
 ### Production (GitHub Pages) — current default
 
@@ -98,7 +101,7 @@ section-kicker style, same chart-card "View table" toggle, same tooltip):
 - Column auto-detect — no manual field mapping
 - **01 — Stock Aging**: KPI row (total value, UR_QTY, SKU count, dead stock, aging>180d) + aging-tier bar chart + class×aging stacked bar chart with legend
 - **02 — Stock by Branch**: bar chart (toggle UR_AMT / UR_QTY), "Exclude DC" filter when a DC flag is present, CSV export
-- **03 — Stock Turnover**: branch/MCH3/Brand dimension-toggle chart, and an MC breakdown table with a 6-way dimension toggle (MCH3/MCH2/MCH1/MC/Brand/CLASS_STOCK) — both with CSV export. Always shown; turnover reads 0 without an `AVG_DAILY` column
+- **03 — Stock Turnover**: branch/MCH3/Brand dimension-toggle chart, and an MC breakdown table with a 6-way dimension toggle (MCH3/MCH2/MCH1/MC/Brand/CLASS_STOCK) — both with CSV export. Always shown; turnover reads 0 without a `T_O` or `AVG_DAILY` column
 - A header "Export" button producing a multi-sheet `.xls` (stock detail, branch summary, and turnover sheets when available) — same approach as the legacy report's full export
 - No configuration UI — auto-loads from whichever worksheet(s) are on the dashboard; auto-refreshes on Tableau filter changes
 
