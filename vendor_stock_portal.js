@@ -13,9 +13,6 @@
     vendorId:    ["vendor_id", "vendorid"],
     vendorName:  ["vendor_name", "vendorname"],
     branch:      ["branch", "branch_name"],
-    // Checked before articleId: articleId's own "sku" alias would otherwise
-    // greedily substring-match a "SKU_COUNT" column first.
-    skuCount:    ["sku_count", "skucount", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"],
     articleId:   ["article_id", "articleid", "sku", "sku_id", "item_code", "itemcode"],
     articleName: ["article_name_th", "article_name", "articlename", "product_name", "item_name", "description"],
     brand:       ["brand", "brand_name"],
@@ -35,7 +32,8 @@
     remainQty:   ["remain_qty", "remainqty"],
     isDc:        ["is_dc", "isdc", "dc_flag", "dcflag"],
     avgDaily:    ["avg_daily", "avgdaily", "avg_daily_qty", "daily_sales_qty", "avg_daily_sales"],
-    turnoverDays: ["t_o_vendor", "t_o_brand", "t_o", "turnover_days"]
+    turnoverDays: ["t_o_vendor", "t_o_brand", "t_o", "turnover_days"],
+    skuCount:    ["sku_count", "skucount", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"]
   };
 
   var TIER_LABELS_FULL = [
@@ -82,34 +80,44 @@
     return names;
   }
 
+  // Two passes so a short alias (e.g. "branch") can never steal a column
+  // that's an exact match for a *different* field (e.g. "BRANCH_ID" vs the
+  // real "BRANCH" column) just because it happened to be checked first —
+  // every exact match across every field is settled before any field falls
+  // back to a fuzzy substring match.
   function buildColumnIndex(columns) {
     var index = {};
-    var used = {};
-    for (var ci = 0; ci < columns.length; ci++) {
-      if (used[ci]) continue;
-      var names = getColName(columns[ci]);
+    var usedCols = {};
+
+    var colCandidates = columns.map(function (col) {
+      var names = getColName(col);
       var candidates = [];
       names.forEach(function (raw) {
-        candidates.push(raw);
+        candidates.push(normalize(raw));
         var stripped = stripAgg(raw);
-        if (stripped !== raw) candidates.push(stripped);
+        if (stripped !== raw) candidates.push(normalize(stripped));
       });
+      return candidates;
+    });
+
+    function pass(exactOnly) {
       for (var field in COLUMN_MAP) {
         if (index[field] !== undefined) continue;
-        var aliases = COLUMN_MAP[field];
-        var matched = false;
-        for (var ai = 0; ai < aliases.length && !matched; ai++) {
-          var normAlias = normalize(aliases[ai]);
-          for (var ni = 0; ni < candidates.length && !matched; ni++) {
-            var normCand = normalize(candidates[ni]);
-            if (normCand === normAlias || normCand.indexOf(normAlias) !== -1) {
-              index[field] = ci; used[ci] = true; matched = true;
-            }
-          }
+        var normAliases = COLUMN_MAP[field].map(normalize);
+        for (var ci = 0; ci < columns.length; ci++) {
+          if (usedCols[ci]) continue;
+          var isMatch = colCandidates[ci].some(function (normCand) {
+            return normAliases.some(function (normAlias) {
+              return exactOnly ? normCand === normAlias : normCand.indexOf(normAlias) !== -1;
+            });
+          });
+          if (isMatch) { index[field] = ci; usedCols[ci] = true; break; }
         }
-        if (used[ci]) break;
       }
     }
+
+    pass(true);
+    pass(false);
     return index;
   }
 
