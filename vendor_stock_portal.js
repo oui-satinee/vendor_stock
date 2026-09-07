@@ -840,9 +840,12 @@
     return records.length > 0 && !records.some(function (d) { return d.tierIdx >= 0; });
   }
 
-  // Always-visible, no-dev-tools-needed summary of what each summary sheet
-  // actually produced — worksheet found?, raw Tableau row count, how many
-  // rows survived extraction, and which fields got column-mapped.
+  // Summary of what each summary sheet actually produced — worksheet
+  // found?, raw Tableau row count, how many rows survived extraction, which
+  // fields got column-mapped, and any aging_detail fallback used. Kept
+  // hidden by default (its container's CSS is display:none) now that the
+  // aging-tier issue is resolved; still populated so it can be inspected via
+  // dev tools (or shown again by removing the display:none) if needed.
   function renderDiagInfo(agingDiag, stockDiag) {
     function line(name, diag) {
       if (!diag.found) return name + ": worksheet not found";
@@ -860,7 +863,6 @@
     var el = document.getElementById("diagInfo");
     el.textContent = "all worksheets on this dashboard: " + allNames + "\n" +
       line(AGING_SHEET_NAME, agingDiag) + "\n" + line(STOCK_SHEET_NAME, stockDiag);
-    el.style.display = "block";
   }
 
   function loadAllData() {
