@@ -759,11 +759,19 @@
   // ─── Tableau: data loading ────────────────────────────────
   // Two fixed worksheet names, looked up by exact name (case-insensitive):
   // "aging" for section 01, "stock" for sections 02-03. No manual picker.
+  // Exact match (case-sensitive) wins first — if two worksheet tabs happen
+  // to normalize to the same name (e.g. "Aging" and "aging"), grabbing
+  // whichever the API happens to list first would be a silent, hard-to-spot
+  // wrong pick. Only falls back to case-insensitive when there's no exact
+  // spelling match at all.
   function findWorksheetByName(name) {
-    var target = name.trim().toLowerCase();
     var worksheets = tableau.extensions.dashboardContent.dashboard.worksheets;
     for (var i = 0; i < worksheets.length; i++) {
-      if (worksheets[i].name.trim().toLowerCase() === target) return worksheets[i];
+      if (worksheets[i].name.trim() === name) return worksheets[i];
+    }
+    var target = name.trim().toLowerCase();
+    for (var j = 0; j < worksheets.length; j++) {
+      if (worksheets[j].name.trim().toLowerCase() === target) return worksheets[j];
     }
     return null;
   }
@@ -823,8 +831,12 @@
       return name + ": found, " + (diag.rawRows || 0) + " raw rows -> " + (diag.extractedRows || 0) +
         " usable rows | mapped fields: " + (cols || "(none)");
     }
+    var allNames = tableau.extensions.dashboardContent.dashboard.worksheets.map(function (ws) {
+      return '"' + ws.name + '"';
+    }).join(", ");
     var el = document.getElementById("diagInfo");
-    el.textContent = line(AGING_SHEET_NAME, agingDiag) + "\n" + line(STOCK_SHEET_NAME, stockDiag);
+    el.textContent = "all worksheets on this dashboard: " + allNames + "\n" +
+      line(AGING_SHEET_NAME, agingDiag) + "\n" + line(STOCK_SHEET_NAME, stockDiag);
     el.style.display = "block";
   }
 
