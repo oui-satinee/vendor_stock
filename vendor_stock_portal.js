@@ -13,6 +13,9 @@
     vendorId:    ["vendor_id", "vendorid"],
     vendorName:  ["vendor_name", "vendorname"],
     branch:      ["branch", "branch_name"],
+    // Checked before articleId: articleId's own "sku" alias would otherwise
+    // greedily substring-match a "SKU_COUNT" column first.
+    skuCount:    ["sku_count", "skucount", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"],
     articleId:   ["article_id", "articleid", "sku", "sku_id", "item_code", "itemcode"],
     articleName: ["article_name_th", "article_name", "articlename", "product_name", "item_name", "description"],
     brand:       ["brand", "brand_name"],
@@ -183,7 +186,12 @@
           remainAmt:   parseNumber(get("remainAmt")),
           remainQty:   parseNumber(get("remainQty")),
           isDC:        isDC,
-          avgDaily:    avgDaily
+          avgDaily:    avgDaily,
+          // Only meaningful when the sheet is a pre-aggregated summary
+          // (no ARTICLE_ID) and carries its own distinct-SKU-count measure
+          // per group; 0 otherwise, in which case distinct articleId
+          // counting below is used instead.
+          skuCount:    parseNumber(get("skuCount"))
         });
       })();
     }
@@ -191,9 +199,21 @@
   }
 
   // ─── State ────────────────────────────────────────────────
+  // Four worksheets, looked up by exact name. The two "summary" sheets
+  // drive the on-screen dashboard and are expected to already be
+  // pre-aggregated in Tableau (no ARTICLE_ID) for fast loading: "aging"
+  // feeds section 01 (Stock Aging) + the KPI row, "stock" feeds sections
+  // 02 (Stock by Branch) and 03 (Stock Turnover). The two "detail" sheets
+  // are full SKU-level data, read only when the header Export button is
+  // clicked, and used solely to build the downloaded .xls.
+  var AGING_SHEET_NAME = "aging";
+  var STOCK_SHEET_NAME = "stock";
+  var AGING_DETAIL_SHEET_NAME = "aging_detail";
+  var STOCK_DETAIL_SHEET_NAME = "stock_detail";
+
   var S = {
-    data: [],
-    worksheetName: "",
+    agingData: [],
+    stockData: [],
     excludeDC: false,
     branchMetric: "amt",
     vBranchActiveDims: ["branch"],
@@ -205,8 +225,11 @@
   var MC_DIM_ORDER = ["mch3", "mch2", "mch1", "mc", "brand", "classStock"];
   var MC_DIM_LABELS = { mch3: "MCH3", mch2: "MCH2", mch1: "MCH1", mc: "MC", brand: "Brand", classStock: "CLASS_STOCK" };
 
-  function activeData() {
-    return S.excludeDC ? S.data.filter(function (d) { return !d.isDC; }) : S.data;
+  function activeAgingData() {
+    return S.excludeDC ? S.agingData.filter(function (d) { return !d.isDC; }) : S.agingData;
+  }
+  function activeStockData() {
+    return S.excludeDC ? S.stockData.filter(function (d) { return !d.isDC; }) : S.stockData;
   }
 
   // ─── Formatting ───────────────────────────────────────────
@@ -304,20 +327,33 @@
   });
 
   // ─── Aggregation ──────────────────────────────────────────
+  // Distinct SKU count: a true per-articleId set when the sheet is at SKU
+  // grain, or a sum of a pre-aggregated SKU_COUNT measure when it's a
+  // rolled-up summary (no ARTICLE_ID) — the latter can over-count SKUs that
+  // span multiple groups (e.g. the same article in several branches), which
+  // is an accepted trade-off for the faster-loading pre-aggregated sheet.
+  function countSkus(records) {
+    var skuCountSum = 0, skuSet = {};
+    records.forEach(function (d) {
+      skuCountSum += d.skuCount;
+      skuSet[d.articleId] = true;
+    });
+    return skuCountSum > 0 ? skuCountSum : Object.keys(skuSet).length;
+  }
+
   function computeKPIs(records) {
     var totalValue = 0, totalQty = 0, deadValue = 0, aging180Value = 0;
-    var skuSet = {}, branchSet = {};
+    var branchSet = {};
     records.forEach(function (d) {
       totalValue += d.urAmt;
       totalQty += d.urQty;
-      skuSet[d.articleId] = true;
       branchSet[d.branch] = true;
       if (d.classStock.toLowerCase().indexOf("dead") !== -1) deadValue += d.urAmt;
       if (d.tierIdx >= 5) aging180Value += d.urAmt;
     });
     return {
       totalValue: totalValue, totalQty: totalQty,
-      sku: Object.keys(skuSet).length, branchCount: Object.keys(branchSet).length,
+      sku: countSkus(records), branchCount: Object.keys(branchSet).length,
       deadValue: deadValue, deadPct: totalValue ? deadValue / totalValue * 100 : 0,
       aging180Value: aging180Value, aging180Pct: totalValue ? aging180Value / totalValue * 100 : 0
     };
@@ -419,14 +455,15 @@
   function computeBranches(records) {
     var map = {}, order = [];
     records.forEach(function (d) {
-      if (!map[d.branch]) { map[d.branch] = { branch: d.branch, value: 0, qty: 0, skuSet: {}, isDC: false }; order.push(d.branch); }
+      if (!map[d.branch]) { map[d.branch] = { branch: d.branch, value: 0, qty: 0, skuSet: {}, skuCountSum: 0, isDC: false }; order.push(d.branch); }
       var b = map[d.branch];
-      b.value += d.urAmt; b.qty += d.urQty; b.skuSet[d.articleId] = true;
+      b.value += d.urAmt; b.qty += d.urQty; b.skuSet[d.articleId] = true; b.skuCountSum += d.skuCount;
       if (d.isDC) b.isDC = true;
     });
     return order.map(function (name) {
       var b = map[name];
-      return { branch: b.branch, value: b.value, qty: b.qty, sku: Object.keys(b.skuSet).length, isDC: b.isDC };
+      var sku = b.skuCountSum > 0 ? b.skuCountSum : Object.keys(b.skuSet).length;
+      return { branch: b.branch, value: b.value, qty: b.qty, sku: sku, isDC: b.isDC };
     });
   }
 
@@ -442,12 +479,6 @@
     var total = rows.reduce(function (s, d) { return s + metricOf(d); }, 0) || 1;
 
     document.getElementById("branchChartTitle").textContent = isAmt ? "มูลค่าสต็อกตามสาขา (UR_AMT)" : "จำนวนสต็อกตามสาขา (UR_QTY)";
-
-    // Check the raw, unfiltered data — `records` here may already have DC
-    // rows removed when the toggle is on, which would otherwise make the
-    // button hide itself the moment it's switched on.
-    var hasDcFlag = S.data.some(function (d) { return d.isDC; });
-    document.getElementById("excludeDcBtn").style.display = hasDcFlag ? "" : "none";
 
     renderBars("branchChart", rows, {
       value: metricOf,
@@ -591,156 +622,215 @@
     return xml;
   }
 
+  // The full export reads the two DETAIL worksheets fresh, on demand — they
+  // are never loaded as part of the normal dashboard render, only here, so
+  // opening the dashboard stays fast even when detail is large.
   function exportFullReport() {
-    var records = activeData();
-    if (records.length === 0) return;
+    showLoading("กำลังโหลดข้อมูลสำหรับ export...");
+    hideError();
 
-    var detailHeaders = ["BRANCH", "ARTICLE_ID", "ARTICLE_NAME_TH", "BRAND", "MCH3", "MCH2", "ITEM_FLAG", "CLASS_STOCK", "AGING_TIER", "UR_QTY", "UR_AMT"];
-    var detailRows = records.map(function (d) {
-      return [d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.mch2, d.itemFlag, d.classStock,
-        d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "", d.urQty, d.urAmt];
+    var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
+    var stockDetailWs = findWorksheetByName(STOCK_DETAIL_SHEET_NAME);
+
+    Promise.all([readWorksheetRecords(agingDetailWs), readWorksheetRecords(stockDetailWs)]).then(function (results) {
+      hideLoading();
+
+      var agingRecords = S.excludeDC ? results[0].filter(function (d) { return !d.isDC; }) : results[0];
+      var stockRecords = S.excludeDC ? results[1].filter(function (d) { return !d.isDC; }) : results[1];
+
+      var missing = [];
+      if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
+      if (!stockDetailWs) missing.push('"' + STOCK_DETAIL_SHEET_NAME + '"');
+
+      if (agingRecords.length === 0 && stockRecords.length === 0) {
+        showError("Export needs worksheet(s) named " +
+          '"' + AGING_DETAIL_SHEET_NAME + '" and/or "' + STOCK_DETAIL_SHEET_NAME + '" on this dashboard — neither was found.');
+        return;
+      }
+
+      var sheets = "";
+
+      if (agingRecords.length > 0) {
+        var detailHeaders = ["BRANCH", "ARTICLE_ID", "ARTICLE_NAME_TH", "BRAND", "MCH3", "MCH2", "ITEM_FLAG", "CLASS_STOCK", "AGING_TIER", "UR_QTY", "UR_AMT"];
+        var detailRows = agingRecords.map(function (d) {
+          return [d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.mch2, d.itemFlag, d.classStock,
+            d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "", d.urQty, d.urAmt];
+        });
+        sheets += xlsSheetXml("Stock aging detail", detailHeaders, detailRows, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
+      }
+
+      if (stockRecords.length > 0) {
+        var branchRows = computeBranches(stockRecords);
+        var branchHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "SKU_COUNT"];
+        var branchXlsRows = branchRows.map(function (d) { return [d.branch, d.value, d.qty, d.sku]; });
+        sheets += xlsSheetXml("Branch summary", branchHeaders, branchXlsRows, [0, 1, 1, 1]);
+
+        var hasTurnover = stockRecords.some(function (d) { return d.avgDaily > 0; });
+        if (hasTurnover) {
+          var branchTO = aggregateByDims(stockRecords, ["branch"]).sort(function (a, b) { return b.value - a.value; });
+          var toHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
+          var toRows = branchTO.map(function (d) { return [d.branch, d.value, d.qty, Math.round(d.to * 10) / 10]; });
+          sheets += xlsSheetXml("Turnover by branch", toHeaders, toRows, [0, 1, 1, 1]);
+
+          var mcTO = aggregateByDims(stockRecords, ["mch3"]).sort(function (a, b) { return b.value - a.value; });
+          var mcHeaders = ["MCH3", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
+          var mcRows = mcTO.map(function (d) { return [d.mch3, d.value, d.qty, Math.round(d.to * 10) / 10]; });
+          sheets += xlsSheetXml("Turnover by MC", mcHeaders, mcRows, [0, 1, 1, 1]);
+        }
+      }
+
+      var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">' +
+        '<Styles><Style ss:ID="Header"><Font ss:Bold="1"/></Style></Styles>' + sheets + "</Workbook>";
+
+      var blob = new Blob([xml], { type: "application/vnd.ms-excel" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = "vendor_stock_full_export.xls";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+
+      if (missing.length) {
+        showError("Export completed, but worksheet(s) not found: " + missing.join(", ") +
+          " — that part of the export was skipped.");
+      }
+    }).catch(function (err) {
+      hideLoading();
+      showError("Could not load data for export: " + (err.message || err));
     });
-
-    var branchRows = computeBranches(records);
-    var branchHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "SKU_COUNT"];
-    var branchXlsRows = branchRows.map(function (d) { return [d.branch, d.value, d.qty, d.sku]; });
-
-    var sheets = xlsSheetXml("Stock detail", detailHeaders, detailRows, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1]) +
-      xlsSheetXml("Branch summary", branchHeaders, branchXlsRows, [0, 1, 1, 1]);
-
-    var hasTurnover = records.some(function (d) { return d.avgDaily > 0; });
-    if (hasTurnover) {
-      var branchTO = aggregateByDims(records, ["branch"]).sort(function (a, b) { return b.value - a.value; });
-      var toHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
-      var toRows = branchTO.map(function (d) { return [d.branch, d.value, d.qty, Math.round(d.to * 10) / 10]; });
-      sheets += xlsSheetXml("Turnover by branch", toHeaders, toRows, [0, 1, 1, 1]);
-
-      var mcTO = aggregateByDims(records, ["mch3"]).sort(function (a, b) { return b.value - a.value; });
-      var mcHeaders = ["MCH3", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
-      var mcRows = mcTO.map(function (d) { return [d.mch3, d.value, d.qty, Math.round(d.to * 10) / 10]; });
-      sheets += xlsSheetXml("Turnover by MC", mcHeaders, mcRows, [0, 1, 1, 1]);
-    }
-
-    var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
-      '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">' +
-      '<Styles><Style ss:ID="Header"><Font ss:Bold="1"/></Style></Styles>' + sheets + "</Workbook>";
-
-    var blob = new Blob([xml], { type: "application/vnd.ms-excel" });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = "vendor_stock_full_export.xls";
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
   }
 
   // ─── Master render ────────────────────────────────────────
   function updateAll() {
-    var records = activeData();
-    if (records.length === 0) {
+    var agingRecords = activeAgingData();
+    var stockRecords = activeStockData();
+    var hasAging = agingRecords.length > 0;
+    var hasStock = stockRecords.length > 0;
+
+    if (!hasAging && !hasStock) {
       document.getElementById("dashboard").style.display = "none";
       document.getElementById("emptyState").style.display = "block";
-      document.getElementById("emptyState").textContent = "No rows match the current filter/exclude-DC selection.";
+      document.getElementById("emptyState").textContent =
+        'No data available. Add worksheets named "' + AGING_SHEET_NAME + '" and "' + STOCK_SHEET_NAME + '" to this dashboard.';
       return;
     }
     document.getElementById("emptyState").style.display = "none";
     document.getElementById("dashboard").style.display = "block";
 
-    var kpi = computeKPIs(records);
-    document.getElementById("kpiValue").textContent = fmtTHB(kpi.totalValue);
-    document.getElementById("kpiValueSub").textContent = "";
-    document.getElementById("kpiQty").textContent = fmtInt(kpi.totalQty);
-    document.getElementById("kpiSku").textContent = fmtInt(kpi.sku);
-    document.getElementById("kpiDead").textContent = fmtTHB(kpi.deadValue);
-    document.getElementById("kpiDeadSub").textContent = pct1(kpi.deadPct) + " of stock value";
-    document.getElementById("kpiAging180").textContent = fmtTHB(kpi.aging180Value);
-    document.getElementById("kpiAging180Sub").textContent = pct1(kpi.aging180Pct) + " of stock value";
+    // "Exclude DC" applies to both sheets at once, so its visibility is
+    // decided from the raw (unfiltered) data across both.
+    var hasDcFlag = S.agingData.concat(S.stockData).some(function (d) { return d.isDC; });
+    document.getElementById("excludeDcBtn").style.display = hasDcFlag ? "" : "none";
 
-    drawAgingChart(records);
-    drawClassAgingChart(records);
-    drawBranches(records);
+    document.getElementById("kpi").style.display = hasAging ? "" : "none";
+    document.getElementById("aging").style.display = hasAging ? "" : "none";
+    if (hasAging) {
+      var kpi = computeKPIs(agingRecords);
+      document.getElementById("kpiValue").textContent = fmtTHB(kpi.totalValue);
+      document.getElementById("kpiValueSub").textContent = "";
+      document.getElementById("kpiQty").textContent = fmtInt(kpi.totalQty);
+      document.getElementById("kpiSku").textContent = fmtInt(kpi.sku);
+      document.getElementById("kpiDead").textContent = fmtTHB(kpi.deadValue);
+      document.getElementById("kpiDeadSub").textContent = pct1(kpi.deadPct) + " of stock value";
+      document.getElementById("kpiAging180").textContent = fmtTHB(kpi.aging180Value);
+      document.getElementById("kpiAging180Sub").textContent = pct1(kpi.aging180Pct) + " of stock value";
 
-    document.getElementById("turnover").style.display = "";
-    drawVendorBranchTO(records);
-    renderMcTable(records);
+      drawAgingChart(agingRecords);
+      drawClassAgingChart(agingRecords);
+    }
+
+    document.getElementById("branch").style.display = hasStock ? "" : "none";
+    document.getElementById("turnover").style.display = hasStock ? "" : "none";
+    if (hasStock) {
+      drawBranches(stockRecords);
+      drawVendorBranchTO(stockRecords);
+      renderMcTable(stockRecords);
+    }
   }
 
   // ─── Tableau: data loading ────────────────────────────────
-  // No manual worksheet picker: auto-use whatever worksheet object(s) are
-  // placed on the dashboard next to this extension. With more than one,
-  // the last one in Tableau's list is used as the closest available proxy
-  // for "most recently placed" (the Extensions API doesn't expose a true
-  // placement timestamp).
-  function pickWorksheet() {
+  // Two fixed worksheet names, looked up by exact name (case-insensitive):
+  // "aging" for section 01, "stock" for sections 02-03. No manual picker.
+  function findWorksheetByName(name) {
+    var target = name.trim().toLowerCase();
     var worksheets = tableau.extensions.dashboardContent.dashboard.worksheets;
-    if (!worksheets || worksheets.length === 0) return null;
-    return worksheets[worksheets.length - 1];
+    for (var i = 0; i < worksheets.length; i++) {
+      if (worksheets[i].name.trim().toLowerCase() === target) return worksheets[i];
+    }
+    return null;
   }
 
-  function loadWorksheetData() {
-    var ws = pickWorksheet();
-    if (!ws) { showError("No worksheet is placed on this dashboard. Add a worksheet object next to the extension."); hideLoading(); return; }
-    S.worksheetName = ws.name;
+  // Reads all rows from one worksheet and resolves with extracted records.
+  // Resolves to [] (rather than rejecting) when the worksheet is missing or
+  // empty, so loading one sheet never blocks the other.
+  function readWorksheetRecords(ws) {
+    if (!ws) return Promise.resolve([]);
 
-    showLoading('Reading data from worksheet "' + ws.name + '"...');
+    var dataPromise;
+    if (typeof ws.getSummaryDataReaderAsync === "function") {
+      dataPromise = ws.getSummaryDataReaderAsync().then(function (reader) {
+        var allData = [];
+        var allColumns = null;
+        var totalPages = reader.totalPageCount;
+        function readPage(pageIndex) {
+          return reader.getPageAsync(pageIndex).then(function (pageData) {
+            if (!allColumns && pageData.columns) allColumns = pageData.columns;
+            if (pageData && pageData.data) {
+              for (var i = 0; i < pageData.data.length; i++) allData.push(pageData.data[i]);
+            }
+            showLoading('Reading "' + ws.name + '"... ' + allData.length + " rows (" + (pageIndex + 1) + "/" + totalPages + " pages)");
+            if (pageIndex + 1 < totalPages) return readPage(pageIndex + 1);
+            return { columns: allColumns, data: allData };
+          });
+        }
+        return readPage(0).then(function (result) {
+          return reader.releaseAsync().then(function () { return result; });
+        });
+      });
+    } else if (typeof ws.getSummaryDataAsync === "function") {
+      dataPromise = ws.getSummaryDataAsync().then(function (dataTable) {
+        return { columns: dataTable.columns, data: dataTable.data };
+      });
+    } else {
+      return Promise.reject(new Error('Worksheet "' + ws.name + '" does not support the data reading API.'));
+    }
+
+    return dataPromise.then(function (dataTable) {
+      if (!dataTable || !dataTable.columns) return [];
+      return extractRecords(dataTable);
+    });
+  }
+
+  function loadAllData() {
+    showLoading("กำลังโหลดข้อมูลจาก Tableau...");
     hideError();
 
-    try {
-      var dataPromise;
-      if (typeof ws.getSummaryDataReaderAsync === "function") {
-        dataPromise = ws.getSummaryDataReaderAsync().then(function (reader) {
-          var allData = [];
-          var allColumns = null;
-          var totalPages = reader.totalPageCount;
-          function readPage(pageIndex) {
-            return reader.getPageAsync(pageIndex).then(function (pageData) {
-              if (!allColumns && pageData.columns) allColumns = pageData.columns;
-              if (pageData && pageData.data) {
-                for (var i = 0; i < pageData.data.length; i++) allData.push(pageData.data[i]);
-              }
-              showLoading("Reading data... " + allData.length + " rows (" + (pageIndex + 1) + "/" + totalPages + " pages)");
-              if (pageIndex + 1 < totalPages) return readPage(pageIndex + 1);
-              return { columns: allColumns, data: allData };
-            });
-          }
-          return readPage(0).then(function (result) {
-            return reader.releaseAsync().then(function () { return result; });
-          });
-        });
-      } else if (typeof ws.getSummaryDataAsync === "function") {
-        dataPromise = ws.getSummaryDataAsync().then(function (dataTable) {
-          return { columns: dataTable.columns, data: dataTable.data };
-        });
-      } else {
-        showError("This worksheet does not support the data reading API.");
-        hideLoading();
-        return;
-      }
+    var agingWs = findWorksheetByName(AGING_SHEET_NAME);
+    var stockWs = findWorksheetByName(STOCK_SHEET_NAME);
 
-      dataPromise.then(function (dataTable) {
-        try {
-          if (!dataTable || !dataTable.columns) { showError("Could not read data — dataTable or columns is null."); hideLoading(); return; }
-          var records = extractRecords(dataTable);
-          if (records.length === 0) {
-            showError("No usable rows found. Check that BRANCH, ARTICLE_ID, UR_AMT/UR_QTY columns exist on this worksheet.");
-            hideLoading();
-            return;
-          }
-          S.data = records;
-          if (records[0].vendorName) document.getElementById("reportTitle").textContent = records[0].vendorName;
-          document.getElementById("metaSnapshot").textContent = new Date().toISOString().slice(0, 10);
-          hideError(); hideLoading();
-          updateAll();
-        } catch (innerErr) {
-          showError("Error processing data: " + innerErr.message);
-          hideLoading();
-        }
-      }).catch(function (err) {
-        showError("Could not load data from worksheet: " + (err.message || err));
-        hideLoading();
-      });
-    } catch (outerErr) {
-      showError("Error: " + outerErr.message);
+    Promise.all([readWorksheetRecords(agingWs), readWorksheetRecords(stockWs)]).then(function (results) {
+      S.agingData = results[0];
+      S.stockData = results[1];
+
+      var titleSource = S.agingData[0] || S.stockData[0];
+      if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
+      document.getElementById("metaSnapshot").textContent = new Date().toISOString().slice(0, 10);
+
+      var missing = [];
+      if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
+      if (!stockWs) missing.push('"' + STOCK_SHEET_NAME + '"');
       hideLoading();
-    }
+      if (missing.length) {
+        showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
+          ". Add a worksheet object named exactly that (case-insensitive) — " +
+          '"' + AGING_SHEET_NAME + '" feeds section 01, "' + STOCK_SHEET_NAME + '" feeds sections 02-03.');
+      } else {
+        hideError();
+      }
+      updateAll();
+    }).catch(function (err) {
+      showError("Could not load data from Tableau: " + (err.message || err));
+      hideLoading();
+    });
   }
 
   function registerFilterListeners() {
@@ -748,7 +838,7 @@
     unregisterFns = [];
     var dashboard = tableau.extensions.dashboardContent.dashboard;
     dashboard.worksheets.forEach(function (ws) {
-      var fn = function () { loadWorksheetData(); };
+      var fn = function () { loadAllData(); };
       unregisterFns.push(ws.addEventListener(tableau.TableauEventType.FilterChanged, fn));
       unregisterFns.push(ws.addEventListener(tableau.TableauEventType.SummaryDataChanged, fn));
     });
@@ -769,14 +859,14 @@
       this.setAttribute("aria-pressed", "true"); this.classList.add("active");
       var qtyBtn = document.getElementById("metricQtyBtn");
       qtyBtn.setAttribute("aria-pressed", "false"); qtyBtn.classList.remove("active");
-      drawBranches(activeData());
+      drawBranches(activeStockData());
     });
     document.getElementById("metricQtyBtn").addEventListener("click", function () {
       S.branchMetric = "qty";
       this.setAttribute("aria-pressed", "true"); this.classList.add("active");
       var amtBtn = document.getElementById("metricAmtBtn");
       amtBtn.setAttribute("aria-pressed", "false"); amtBtn.classList.remove("active");
-      drawBranches(activeData());
+      drawBranches(activeStockData());
     });
 
     document.getElementById("fullExportBtn").addEventListener("click", exportFullReport);
@@ -796,7 +886,7 @@
           S.vBranchActiveDims.push(dim);
           this.setAttribute("aria-pressed", "true");
         }
-        drawVendorBranchTO(activeData());
+        drawVendorBranchTO(activeStockData());
       });
     });
 
@@ -814,7 +904,7 @@
           S.mcActiveDims.push(dim);
           this.setAttribute("aria-pressed", "true");
         }
-        renderMcTable(activeData());
+        renderMcTable(activeStockData());
       });
     });
   }
@@ -822,7 +912,7 @@
   // ─── Tableau bootstrap ────────────────────────────────────
   function initializeExtension() {
     tableau.extensions.initializeAsync().then(function () {
-      loadWorksheetData();
+      loadAllData();
       registerFilterListeners();
       attachEvents();
     }).catch(function (err) {

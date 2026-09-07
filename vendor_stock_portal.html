@@ -208,7 +208,7 @@
     </div>
     <div class="report-header-right">
       <button class="header-btn" id="excludeDcBtn" style="display:none" aria-pressed="false">ไม่รวม DC</button>
-      <button class="header-icon-btn" id="fullExportBtn" aria-label="Export" title="Export (.xls, multi-sheet)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+      <button class="header-icon-btn" id="fullExportBtn" aria-label="Export" title="Export full detail (.xls, multi-sheet) — reads &quot;aging_detail&quot;/&quot;stock_detail&quot; worksheets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
       <div class="report-meta-field">
         <span class="report-meta-label">Snapshot date</span>
         <span class="report-meta-value tabular" id="metaSnapshot">–</span>
@@ -228,7 +228,7 @@
 </div>
 
 <div class="empty-state" id="emptyState">
-  Place a worksheet object on this dashboard next to the extension to load data.<br>
+  Add worksheet objects named "aging" (for section 01) and/or "stock" (for sections 02-03) to this dashboard.<br>
   Required columns: BRANCH, ARTICLE_ID, UR_AMT (or UR_COST_AMT), UR_QTY, and either CLASS_STOCK or AGING_TIER/AGING.
 </div>
 
