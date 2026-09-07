@@ -34,7 +34,8 @@
     avgDaily:    ["avg_daily", "avgdaily", "avg_daily_qty", "daily_sales_qty", "avg_daily_sales"],
     turnoverDays: ["t_o_vendor", "t_o_brand", "t_o", "turnover_days"],
     skuCount:    ["sku_count", "skucount", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"],
-    populationDate: ["population_date", "populationdate"]
+    populationDate: ["population_date", "populationdate"],
+    urQtyDead:   ["ur_qty_dead", "urqtydead"]
   };
 
   var TIER_LABELS_FULL = [
@@ -211,7 +212,8 @@
           // per group; 0 otherwise, in which case distinct articleId
           // counting below is used instead.
           skuCount:    parseNumber(get("skuCount")),
-          populationDate: get("populationDate")
+          populationDate: get("populationDate"),
+          urQtyDead:   parseNumber(get("urQtyDead"))
         });
       })();
     }
@@ -531,13 +533,14 @@
     records.forEach(function (r) {
       var key = dims.map(function (d) { return r[d]; }).join("");
       if (!groups[key]) {
-        var g = { value: 0, qty: 0, avgDaily: 0, isDC: false };
+        var g = { value: 0, qty: 0, avgDaily: 0, qtyDead: 0, isDC: false };
         dims.forEach(function (d) { g[d] = r[d]; });
         groups[key] = g; order.push(key);
       }
       groups[key].value += r.urAmt;
       groups[key].qty += r.urQty;
       groups[key].avgDaily += r.avgDaily;
+      groups[key].qtyDead += r.urQtyDead;
       if (r.isDC) groups[key].isDC = true;
     });
     return order.map(function (k) {
@@ -698,6 +701,15 @@
         }
 
         if (stockRecords.length > 0) {
+          var stockSnapshotDate = formatSnapshotDate(stockRecords[0].populationDate);
+
+          var stockByBranchHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "ARTICLE_ID", "ARTICLE_NAME_TH", "ITEM_FLAG", "UR_QTY", "UR_AMT", "POPULATION_DATE"];
+          var stockByBranchRows = stockRecords.map(function (d) {
+            return [d.vendorId, d.vendorName, d.branch, d.mch3, d.articleId, d.articleName, d.itemFlag,
+              d.urQty, d.urAmt, formatSnapshotDate(d.populationDate)];
+          });
+          sheets += xlsSheetXml("Stock by branch", stockByBranchHeaders, stockByBranchRows, [0, 0, 0, 0, 0, 0, 0, 1, 1, 0]);
+
           var branchRows = computeBranches(stockRecords);
           var branchHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "SKU_COUNT"];
           var branchXlsRows = branchRows.map(function (d) { return [d.branch, d.value, d.qty, d.sku]; });
@@ -706,9 +718,9 @@
           var hasTurnover = stockRecords.some(function (d) { return d.avgDaily > 0; });
           if (hasTurnover) {
             var branchTO = aggregateByDims(stockRecords, ["branch"]).sort(function (a, b) { return b.value - a.value; });
-            var toHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
-            var toRows = branchTO.map(function (d) { return [d.branch, d.value, d.qty, Math.round(d.to * 10) / 10]; });
-            sheets += xlsSheetXml("Turnover by branch", toHeaders, toRows, [0, 1, 1, 1]);
+            var toHeaders = ["BRANCH", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS", "UR_QTY_DEAD", "POPULATION_DATE"];
+            var toRows = branchTO.map(function (d) { return [d.branch, d.value, d.qty, Math.round(d.to * 10) / 10, d.qtyDead, stockSnapshotDate]; });
+            sheets += xlsSheetXml("Turnover by branch", toHeaders, toRows, [0, 1, 1, 1, 1, 0]);
 
             var mcTO = aggregateByDims(stockRecords, ["mch3"]).sort(function (a, b) { return b.value - a.value; });
             var mcHeaders = ["MCH3", "VALUE_UR_AMT", "QUANTITY_UR_QTY", "TURNOVER_DAYS"];
