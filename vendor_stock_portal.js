@@ -136,7 +136,16 @@
   function extractRecords(dataTable, diagOut) {
     var colIndex = buildColumnIndex(dataTable.columns);
     console.log("[VendorStockPortal] columns detected:", colIndex);
-    if (diagOut) diagOut.colIndex = colIndex;
+    if (diagOut) {
+      diagOut.colIndex = colIndex;
+      // Every raw column name Tableau actually returned for this worksheet,
+      // matched or not — the ground truth for whether a field like
+      // AGING_TIER is really absent from the data, versus present but
+      // unmatched by buildColumnIndex for some other reason.
+      diagOut.rawColumnNames = dataTable.columns.map(function (col) {
+        return getColName(col).join("/") || "(unnamed)";
+      });
+    }
 
     var rows = [];
     var data = dataTable.data;
@@ -828,8 +837,10 @@
     function line(name, diag) {
       if (!diag.found) return name + ": worksheet not found";
       var cols = diag.colIndex ? Object.keys(diag.colIndex).sort().join(", ") : "(none)";
+      var raw = diag.rawColumnNames ? diag.rawColumnNames.join(" | ") : "(none)";
       return name + ": found, " + (diag.rawRows || 0) + " raw rows -> " + (diag.extractedRows || 0) +
-        " usable rows | mapped fields: " + (cols || "(none)");
+        " usable rows\n  mapped fields: " + (cols || "(none)") +
+        "\n  RAW column names from Tableau: " + raw;
     }
     var allNames = tableau.extensions.dashboardContent.dashboard.worksheets.map(function (ws) {
       return '"' + ws.name + '"';
