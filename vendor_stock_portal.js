@@ -649,12 +649,26 @@
 
     var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
     var stockDetailWs = findWorksheetByName(STOCK_DETAIL_SHEET_NAME);
+    var agingDetailDiag = {};
 
-    Promise.all([readWorksheetRecords(agingDetailWs), readWorksheetRecords(stockDetailWs)]).then(function (results) {
+    Promise.all([readWorksheetRecords(agingDetailWs, agingDetailDiag), readWorksheetRecords(stockDetailWs)]).then(function (results) {
       hideLoading();
 
       var agingRecords = S.excludeDC ? results[0].filter(function (d) { return !d.isDC; }) : results[0];
       var stockRecords = S.excludeDC ? results[1].filter(function (d) { return !d.isDC; }) : results[1];
+
+      // AGING_TIER has repeatedly come back unresolved even on sheets that
+      // visibly show it correctly in Tableau Desktop (see AGING_TIER
+      // debugging history) — surface exactly how many rows actually
+      // resolved a tier at export time, since that's the ground truth the
+      // no-dev-tools Tableau Desktop webview otherwise hides.
+      var tierResolved = agingRecords.filter(function (d) { return d.tierIdx >= 0; }).length;
+      var tierWarning = "";
+      if (agingRecords.length > 0 && tierResolved < agingRecords.length) {
+        tierWarning = "AGING_TIER resolved on " + tierResolved + " of " + agingRecords.length + " exported rows. " +
+          "Raw columns Tableau returned for \"" + AGING_DETAIL_SHEET_NAME + "\": " +
+          (agingDetailDiag.rawColumnNames ? agingDetailDiag.rawColumnNames.join(" | ") : "(none)") + ".";
+      }
 
       var missing = [];
       if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
@@ -710,6 +724,8 @@
       if (missing.length) {
         showError("Export completed, but worksheet(s) not found: " + missing.join(", ") +
           " — that part of the export was skipped.");
+      } else if (tierWarning) {
+        showError("Export completed, but not every row could show an aging tier. " + tierWarning);
       }
     }).catch(function (err) {
       hideLoading();
