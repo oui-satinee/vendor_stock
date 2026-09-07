@@ -830,6 +830,16 @@
     });
   }
 
+  // True when a sheet has rows but not one of them resolved an aging tier —
+  // the signature of AGING_TIER either being absent from the sheet, or (as
+  // seen in practice) present on-screen in Tableau Desktop but blended in
+  // from a *different* data source than the sheet's own primary, which the
+  // Extensions API's summary-data calls silently drop from the columns they
+  // return even though Desktop renders the pill fine.
+  function agingTierTotallyUnresolved(records) {
+    return records.length > 0 && !records.some(function (d) { return d.tierIdx >= 0; });
+  }
+
   // Always-visible, no-dev-tools-needed summary of what each summary sheet
   // actually produced — worksheet found?, raw Tableau row count, how many
   // rows survived extraction, and which fields got column-mapped.
@@ -838,9 +848,11 @@
       if (!diag.found) return name + ": worksheet not found";
       var cols = diag.colIndex ? Object.keys(diag.colIndex).sort().join(", ") : "(none)";
       var raw = diag.rawColumnNames ? diag.rawColumnNames.join(" | ") : "(none)";
-      return name + ": found, " + (diag.rawRows || 0) + " raw rows -> " + (diag.extractedRows || 0) +
+      var out = name + ": found, " + (diag.rawRows || 0) + " raw rows -> " + (diag.extractedRows || 0) +
         " usable rows\n  mapped fields: " + (cols || "(none)") +
         "\n  RAW column names from Tableau: " + raw;
+      if (diag.fallback) out += "\n  " + diag.fallback;
+      return out;
     }
     var allNames = tableau.extensions.dashboardContent.dashboard.worksheets.map(function (ws) {
       return '"' + ws.name + '"';
@@ -860,40 +872,66 @@
     var agingDiag = {}, stockDiag = {};
 
     Promise.all([readWorksheetRecords(agingWs, agingDiag), readWorksheetRecords(stockWs, stockDiag)]).then(function (results) {
-      S.agingData = results[0];
+      var agingRecords = results[0];
       S.stockData = results[1];
-      renderDiagInfo(agingDiag, stockDiag);
 
-      var titleSource = S.agingData[0] || S.stockData[0];
-      if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
-      document.getElementById("metaSnapshot").textContent = new Date().toISOString().slice(0, 10);
+      function finish() {
+        S.agingData = agingRecords;
+        renderDiagInfo(agingDiag, stockDiag);
 
-      var missing = [];
-      if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
-      if (!stockWs) missing.push('"' + STOCK_SHEET_NAME + '"');
+        var titleSource = S.agingData[0] || S.stockData[0];
+        if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
+        document.getElementById("metaSnapshot").textContent = new Date().toISOString().slice(0, 10);
 
-      // Found the worksheet, but it produced zero usable rows — different
-      // problem than "not found", and silent otherwise, so call it out
-      // explicitly instead of just showing an empty section.
-      var empty = [];
-      if (agingWs && results[0].length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
-      if (stockWs && results[1].length === 0) empty.push('"' + STOCK_SHEET_NAME + '"');
+        var missing = [];
+        if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
+        if (!stockWs) missing.push('"' + STOCK_SHEET_NAME + '"');
 
-      hideLoading();
-      if (missing.length) {
-        showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
-          ". Add a worksheet object named exactly that (case-insensitive) — " +
-          '"' + AGING_SHEET_NAME + '" feeds section 01, "' + STOCK_SHEET_NAME + '" feeds sections 02-03.');
-      } else if (empty.length) {
-        showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
-          ". Every row needs UR_AMT or UR_QTY to be non-zero — check that those fields are actually " +
-          "placed on the worksheet (on the Marks card, e.g. as Detail), not just present in the data " +
-          "source. Open the browser dev console for a \"[VendorStockPortal] columns detected\" log " +
-          "showing exactly which columns were matched.");
-      } else {
-        hideError();
+        // Found the worksheet, but it produced zero usable rows — different
+        // problem than "not found", and silent otherwise, so call it out
+        // explicitly instead of just showing an empty section.
+        var empty = [];
+        if (agingWs && S.agingData.length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
+        if (stockWs && S.stockData.length === 0) empty.push('"' + STOCK_SHEET_NAME + '"');
+
+        hideLoading();
+        if (missing.length) {
+          showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
+            ". Add a worksheet object named exactly that (case-insensitive) — " +
+            '"' + AGING_SHEET_NAME + '" feeds section 01, "' + STOCK_SHEET_NAME + '" feeds sections 02-03.');
+        } else if (empty.length) {
+          showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
+            ". Every row needs UR_AMT or UR_QTY to be non-zero — check that those fields are actually " +
+            "placed on the worksheet (on the Marks card, e.g. as Detail), not just present in the data " +
+            "source. Open the browser dev console for a \"[VendorStockPortal] columns detected\" log " +
+            "showing exactly which columns were matched.");
+        } else {
+          hideError();
+        }
+        updateAll();
       }
-      updateAll();
+
+      // "aging" produced rows but not one of them has a resolvable tier —
+      // fall back to "aging_detail" (SKU-grain, otherwise only read on
+      // Export) which is the sheet confirmed to carry AGING_TIER from its
+      // own primary data source rather than blended in from elsewhere.
+      if (agingTierTotallyUnresolved(agingRecords)) {
+        var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
+        var agingDetailDiag = {};
+        readWorksheetRecords(agingDetailWs, agingDetailDiag).then(function (detailRecords) {
+          if (detailRecords.length > 0 && !agingTierTotallyUnresolved(detailRecords)) {
+            agingDiag.fallback = 'AGING_TIER unresolved on every row — used "' + AGING_DETAIL_SHEET_NAME +
+              '" instead (' + (agingDetailDiag.rawRows || 0) + " raw rows -> " + detailRecords.length + " usable rows).";
+            agingRecords = detailRecords;
+          } else {
+            agingDiag.fallback = 'AGING_TIER unresolved on every row, and the "' + AGING_DETAIL_SHEET_NAME +
+              '" fallback did not help either (found: ' + !!agingDetailWs + ", usable rows: " + detailRecords.length + ").";
+          }
+          finish();
+        });
+      } else {
+        finish();
+      }
     }).catch(function (err) {
       showError("Could not load data from Tableau: " + (err.message || err));
       hideLoading();
