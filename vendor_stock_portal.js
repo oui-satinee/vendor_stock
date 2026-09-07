@@ -133,9 +133,10 @@
     return s === "true" || s === "1" || s === "y" || s === "yes";
   }
 
-  function extractRecords(dataTable) {
+  function extractRecords(dataTable, diagOut) {
     var colIndex = buildColumnIndex(dataTable.columns);
     console.log("[VendorStockPortal] columns detected:", colIndex);
+    if (diagOut) diagOut.colIndex = colIndex;
 
     var rows = [];
     var data = dataTable.data;
@@ -770,8 +771,9 @@
   // Reads all rows from one worksheet and resolves with extracted records.
   // Resolves to [] (rather than rejecting) when the worksheet is missing or
   // empty, so loading one sheet never blocks the other.
-  function readWorksheetRecords(ws) {
-    if (!ws) return Promise.resolve([]);
+  function readWorksheetRecords(ws, diagOut) {
+    if (!ws) { if (diagOut) diagOut.found = false; return Promise.resolve([]); }
+    if (diagOut) diagOut.found = true;
 
     var dataPromise;
     if (typeof ws.getSummaryDataReaderAsync === "function") {
@@ -803,9 +805,27 @@
     }
 
     return dataPromise.then(function (dataTable) {
-      if (!dataTable || !dataTable.columns) return [];
-      return extractRecords(dataTable);
+      if (!dataTable || !dataTable.columns) { if (diagOut) diagOut.rawRows = 0; return []; }
+      if (diagOut) diagOut.rawRows = dataTable.data.length;
+      var records = extractRecords(dataTable, diagOut);
+      if (diagOut) diagOut.extractedRows = records.length;
+      return records;
     });
+  }
+
+  // Always-visible, no-dev-tools-needed summary of what each summary sheet
+  // actually produced — worksheet found?, raw Tableau row count, how many
+  // rows survived extraction, and which fields got column-mapped.
+  function renderDiagInfo(agingDiag, stockDiag) {
+    function line(name, diag) {
+      if (!diag.found) return name + ": worksheet not found";
+      var cols = diag.colIndex ? Object.keys(diag.colIndex).sort().join(", ") : "(none)";
+      return name + ": found, " + (diag.rawRows || 0) + " raw rows -> " + (diag.extractedRows || 0) +
+        " usable rows | mapped fields: " + (cols || "(none)");
+    }
+    var el = document.getElementById("diagInfo");
+    el.textContent = line(AGING_SHEET_NAME, agingDiag) + "\n" + line(STOCK_SHEET_NAME, stockDiag);
+    el.style.display = "block";
   }
 
   function loadAllData() {
@@ -814,10 +834,12 @@
 
     var agingWs = findWorksheetByName(AGING_SHEET_NAME);
     var stockWs = findWorksheetByName(STOCK_SHEET_NAME);
+    var agingDiag = {}, stockDiag = {};
 
-    Promise.all([readWorksheetRecords(agingWs), readWorksheetRecords(stockWs)]).then(function (results) {
+    Promise.all([readWorksheetRecords(agingWs, agingDiag), readWorksheetRecords(stockWs, stockDiag)]).then(function (results) {
       S.agingData = results[0];
       S.stockData = results[1];
+      renderDiagInfo(agingDiag, stockDiag);
 
       var titleSource = S.agingData[0] || S.stockData[0];
       if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
