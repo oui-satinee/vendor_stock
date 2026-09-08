@@ -563,7 +563,7 @@
     var dims = VBRANCH_DIM_ORDER.filter(function (d) { return S.vBranchActiveDims.indexOf(d) !== -1; });
     var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.to - a.to; });
 
-    document.getElementById("vBranchTOTitle").textContent = "มูลค่า จำนวน และ Turnover ตาม " + dims.map(function (d) { return VBRANCH_DIM_LABELS[d]; }).join(" และ ");
+    document.getElementById("vBranchTOTitle").textContent = "Turnover ตาม " + dims.map(function (d) { return VBRANCH_DIM_LABELS[d]; }).join(" และ ");
 
     var labelW = { 1: 168, 2: 220, 3: 280 }[dims.length] || 168;
     var labelWMobile = { 1: 108, 2: 145, 3: 180 }[dims.length] || 108;
@@ -601,6 +601,8 @@
   function renderMcTable(records) {
     var dims = MC_DIM_ORDER.filter(function (d) { return S.mcActiveDims.indexOf(d) !== -1; });
     var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.value - a.value; });
+
+    document.getElementById("mcTOTitle").textContent = "Turnover ตาม " + dims.map(function (d) { return MC_DIM_LABELS[d]; }).join(" และ ");
 
     var totalValue = 0, totalQty = 0, totalToRawSum = 0, totalToRawCount = 0;
     rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; });
