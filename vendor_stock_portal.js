@@ -624,6 +624,14 @@
     var dims = ["mch3", "brand", "classStock"];
     var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.toRaw - a.toRaw; });
 
+    // Three dims joined ("MCH3 · Brand · CLASS_STOCK") need a much wider
+    // label column than the default — narrows the bar track itself so the
+    // text isn't ellipsized, same widths the old dims-toggle chart used
+    // for a 3-dim combo.
+    var chartContainer = document.getElementById("brandTOChart");
+    chartContainer.style.setProperty("--label-w", "280px");
+    chartContainer.style.setProperty("--label-w-mobile", "180px");
+
     function labelOf(d) { return dims.map(function (k) { return d[k]; }).join(" · "); }
 
     renderBars("brandTOChart", rows, {
@@ -785,22 +793,22 @@
           var turnoverSnapshotDate = formatSnapshotDate(turnoverRecords[0].populationDate);
           var turnoverVendorId = turnoverRecords[0].vendorId, turnoverVendorName = turnoverRecords[0].vendorName;
           var branchTO = aggregateByDims(turnoverRecords, ["branch", "mch3"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
-          var toHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "UR_QTY", "T_O", "UR_QTY_DEAD", "POPULATION_DATE"];
+          var toHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "UR_QTY", "UR_AMT", "T_O", "UR_QTY_DEAD", "POPULATION_DATE"];
           var toRows = branchTO.map(function (d) {
-            return [turnoverVendorId, turnoverVendorName, d.branch, d.mch3, d.qty, Math.round(d.toRaw * 10) / 10, d.qtyDead, turnoverSnapshotDate];
+            return [turnoverVendorId, turnoverVendorName, d.branch, d.mch3, d.qty, d.value, Math.round(d.toRaw * 10) / 10, d.qtyDead, turnoverSnapshotDate];
           });
-          sheets += xlsSheetXml("Turnover", toHeaders, toRows, [0, 0, 0, 0, 1, 1, 1, 0]);
+          sheets += xlsSheetXml("Turnover", toHeaders, toRows, [0, 0, 0, 0, 1, 1, 1, 1, 0]);
         }
 
         if (turnoverBrandRecords.length > 0) {
           var brandSnapshotDate = formatSnapshotDate(turnoverBrandRecords[0].populationDate);
           var brandVendorId = turnoverBrandRecords[0].vendorId, brandVendorName = turnoverBrandRecords[0].vendorName;
           var brandTO = aggregateByDims(turnoverBrandRecords, ["mch3", "brand", "classStock"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
-          var brandHeaders = ["VENDOR_ID", "VENDOR_NAME", "MCH3", "BRAND", "CLASS_STOCK", "UR_QTY", "T_O", "POPULATION_DATE"];
+          var brandHeaders = ["VENDOR_ID", "VENDOR_NAME", "MCH3", "BRAND", "CLASS_STOCK", "UR_QTY", "UR_AMT", "T_O", "POPULATION_DATE"];
           var brandRows = brandTO.map(function (d) {
-            return [brandVendorId, brandVendorName, d.mch3, d.brand, d.classStock, d.qty, Math.round(d.toRaw * 10) / 10, brandSnapshotDate];
+            return [brandVendorId, brandVendorName, d.mch3, d.brand, d.classStock, d.qty, d.value, Math.round(d.toRaw * 10) / 10, brandSnapshotDate];
           });
-          sheets += xlsSheetXml("Turnover by BRAND", brandHeaders, brandRows, [0, 0, 0, 0, 0, 1, 1, 0]);
+          sheets += xlsSheetXml("Turnover by BRAND", brandHeaders, brandRows, [0, 0, 0, 0, 0, 1, 1, 1, 0]);
         }
 
         var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
@@ -1125,11 +1133,13 @@
       return Promise.all([
         withFieldFallback(turnoverByBranchWs, S.turnoverByBranchData, "branch", "Unspecified"),
         withFieldFallback(turnoverBrandWs, S.turnoverBrandData, "brand", ""),
-        withFieldFallback(agingDetailWs, S.agingDetailData, "classStock", "Unclassified")
+        withFieldFallback(agingDetailWs, S.agingDetailData, "classStock", "Unclassified"),
+        withFieldFallback(turnoverWs, S.turnoverData, "branch", "Unspecified")
       ]).then(function (fixed) {
         S.turnoverByBranchData = fixed[0];
         S.turnoverBrandData = fixed[1];
         S.agingDetailData = fixed[2];
+        S.turnoverData = fixed[3];
         return continueLoad();
       });
 
