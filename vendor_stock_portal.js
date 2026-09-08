@@ -214,7 +214,8 @@
           skuCount:    parseNumber(get("skuCount")),
           populationDate: get("populationDate"),
           urQtyDead:   parseNumber(get("urQtyDead")),
-          agingDays:   parseNumber(agingDaysRaw)
+          agingDays:   parseNumber(agingDaysRaw),
+          turnoverDays: turnoverDays
         });
       })();
     }
@@ -534,7 +535,7 @@
     records.forEach(function (r) {
       var key = dims.map(function (d) { return r[d]; }).join("");
       if (!groups[key]) {
-        var g = { value: 0, qty: 0, avgDaily: 0, qtyDead: 0, isDC: false };
+        var g = { value: 0, qty: 0, avgDaily: 0, qtyDead: 0, isDC: false, toRawSum: 0, toRawCount: 0 };
         dims.forEach(function (d) { g[d] = r[d]; });
         groups[key] = g; order.push(key);
       }
@@ -543,10 +544,15 @@
       groups[key].avgDaily += r.avgDaily;
       groups[key].qtyDead += r.urQtyDead;
       if (r.isDC) groups[key].isDC = true;
+      // Straight average of the raw T_O column, kept separate from the
+      // qty/avgDaily-derived `to` below — used wherever the data source's
+      // own T_O value must be shown as-is instead of being re-aggregated.
+      if (r.turnoverDays > 0) { groups[key].toRawSum += r.turnoverDays; groups[key].toRawCount++; }
     });
     return order.map(function (k) {
       var g = groups[k];
       g.to = g.avgDaily > 0 ? g.qty / g.avgDaily : 0;
+      g.toRaw = g.toRawCount > 0 ? g.toRawSum / g.toRawCount : 0;
       return g;
     });
   }
@@ -596,15 +602,19 @@
     var dims = MC_DIM_ORDER.filter(function (d) { return S.mcActiveDims.indexOf(d) !== -1; });
     var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.value - a.value; });
 
-    var totalValue = 0, totalQty = 0, totalAvgDaily = 0;
-    rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; totalAvgDaily += d.avgDaily; });
-    var totalTurnover = totalAvgDaily > 0 ? totalQty / totalAvgDaily : 0;
+    var totalValue = 0, totalQty = 0, totalToRawSum = 0, totalToRawCount = 0;
+    rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; });
+    // Turnover here is the raw T_O column averaged as-is (see aggregateByDims),
+    // not re-derived from qty/avgDaily, so the total is the same plain
+    // average taken directly over every underlying record.
+    records.forEach(function (d) { if (d.turnoverDays > 0) { totalToRawSum += d.turnoverDays; totalToRawCount++; } });
+    var totalTurnoverRaw = totalToRawCount > 0 ? totalToRawSum / totalToRawCount : 0;
 
-    var headers = dims.map(function (d) { return MC_DIM_LABELS[d]; }).concat(["Value (THB)", "Quantity", "Turnover"]);
+    var headers = dims.map(function (d) { return MC_DIM_LABELS[d]; }).concat(["UR_AMT", "Quantity", "Turnover"]);
     var tableRows = rows.map(function (d) {
-      return dims.map(function (k) { return d[k]; }).concat([fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.to)]);
+      return dims.map(function (k) { return d[k]; }).concat([fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.toRaw)]);
     });
-    tableRows.push(dims.map(function (d, i) { return i === 0 ? "Total" : ""; }).concat([fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]));
+    tableRows.push(dims.map(function (d, i) { return i === 0 ? "Total" : ""; }).concat([fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnoverRaw)]));
 
     var html = '<table class="data-table"><thead><tr>';
     headers.forEach(function (h) { html += "<th>" + h + "</th>"; });
