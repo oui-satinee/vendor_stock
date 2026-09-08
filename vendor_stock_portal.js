@@ -613,14 +613,17 @@
   // Fixed to one row per brand, reading T_O as-is from a dedicated
   // "turnover_brand" sheet — mirrors drawVendorBranchTO above.
   function drawTurnoverByBrand(records) {
-    var rows = aggregateByDims(records, ["brand"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
+    var dims = ["mch3", "brand", "classStock"];
+    var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.toRaw - a.toRaw; });
+
+    function labelOf(d) { return dims.map(function (k) { return d[k]; }).join(" · "); }
 
     renderBars("brandTOChart", rows, {
       value: function (d) { return d.toRaw; },
-      label: function (d) { return d.brand; },
+      label: labelOf,
       color: function () { return "var(--accent)"; },
       valueLabel: function (d) { return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>"; },
-      tipTitle: function (d) { return d.brand; },
+      tipTitle: labelOf,
       tipRows: function (d) { return [["Turnover (T_O)", fmtDays(d.toRaw)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
     });
 
@@ -629,11 +632,11 @@
     records.forEach(function (d) { if (d.turnoverDays > 0) { totalToRawSum += d.turnoverDays; totalToRawCount++; } });
     var totalTurnover = totalToRawCount > 0 ? totalToRawSum / totalToRawCount : 0;
 
-    var headers = ["Brand", "Value (THB)", "Quantity", "Turnover"];
+    var headers = ["MCH3", "Brand", "CLASS_STOCK", "Value (THB)", "Quantity", "Turnover"];
     var tableRows = rows.map(function (d) {
-      return [d.brand, fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.toRaw)];
+      return [d.mch3, d.brand, d.classStock, fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.toRaw)];
     });
-    tableRows.push(["Total", fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]);
+    tableRows.push(["Total", "", "", fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]);
     renderTable("brandTOChart", headers, tableRows);
     brandTOExportState = { headers: headers, rows: tableRows };
   }
