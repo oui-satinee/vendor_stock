@@ -996,7 +996,14 @@
   // row (extractRecords drops rows where both are 0) — diagOut.underlying*
   // records what was tried either way, for the diagnostic panel/export
   // warning to report even when this comes up empty.
-  function readUnderlyingAgingRecords(ws, diagOut) {
+  // Generic version of the underlying-table fallback: pick whichever
+  // logical table behind `ws` scores highest under an arbitrary field
+  // resolution metric, not just AGING_TIER — the same "field visible in
+  // Tableau but missing from getSummaryDataAsync" symptom has since shown
+  // up on BRANCH (turnover_by_branch) and BRAND/CLASS_STOCK
+  // (turnover_brand) too, so every eagerly-loaded custom sheet may need
+  // this same rescue.
+  function readUnderlyingRecordsScored(ws, scoreFn, diagOut) {
     if (!ws || typeof ws.getUnderlyingTablesAsync !== "function") return Promise.resolve([]);
     return ws.getUnderlyingTablesAsync().then(function (tables) {
       return Promise.all(tables.map(function (t) {
@@ -1017,11 +1024,35 @@
       }
       var best = [], bestScore = -1;
       perTable.forEach(function (r) {
-        var score = tierResolvedCount(r.records);
+        var score = scoreFn(r.records);
         if (score > bestScore) { bestScore = score; best = r.records; }
       });
       return best;
     }).catch(function () { return []; });
+  }
+
+  function readUnderlyingAgingRecords(ws, diagOut) {
+    return readUnderlyingRecordsScored(ws, tierResolvedCount, diagOut);
+  }
+
+  // How many records actually resolved a given field, instead of falling
+  // back to extractRecords' own placeholder default for it.
+  function fieldResolvedCount(records, field, placeholder) {
+    var n = 0;
+    for (var i = 0; i < records.length; i++) if (records[i][field] !== placeholder) n++;
+    return n;
+  }
+
+  // If `records` came back with a field totally unresolved (every row
+  // still on extractRecords' placeholder default), retry via the
+  // worksheet's underlying table(s) and use that instead when it's
+  // actually better — otherwise keep the original (already-empty-of-that-
+  // field) records rather than losing rows for no gain.
+  function withFieldFallback(ws, records, field, placeholder) {
+    if (records.length === 0 || fieldResolvedCount(records, field, placeholder) > 0) return Promise.resolve(records);
+    return readUnderlyingRecordsScored(ws, function (recs) { return fieldResolvedCount(recs, field, placeholder); }).then(function (underlying) {
+      return fieldResolvedCount(underlying, field, placeholder) > 0 ? underlying : records;
+    });
   }
 
   // Summary of what each summary sheet actually produced — worksheet
@@ -1086,80 +1117,106 @@
       S.turnoverData = results[4];
       S.turnoverMcData = results[5];
 
-      function finish() {
-        S.agingData = agingRecords;
-        renderDiagInfo(agingDiag, turnoverDiag);
-
-        var titleSource = S.agingData[0] || S.turnoverData[0] || S.turnoverByBranchData[0] || S.turnoverMcData[0];
-        if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
-        document.getElementById("metaSnapshot").textContent =
-          formatSnapshotDate(titleSource && titleSource.populationDate) || new Date().toISOString().slice(0, 10);
-
-        var missing = [];
-        if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
-        if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
-        if (!turnoverByBranchWs) missing.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
-        if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
-        if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
-        if (!turnoverMcWs) missing.push('"' + TURNOVER_MC_SHEET_NAME + '"');
-
-        // Found the worksheet, but it produced zero usable rows — different
-        // problem than "not found", and silent otherwise, so call it out
-        // explicitly instead of just showing an empty section.
-        var empty = [];
-        if (agingWs && S.agingData.length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
-        if (agingDetailWs && S.agingDetailData.length === 0) empty.push('"' + AGING_DETAIL_SHEET_NAME + '"');
-        if (turnoverByBranchWs && S.turnoverByBranchData.length === 0) empty.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
-        if (turnoverBrandWs && S.turnoverBrandData.length === 0) empty.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
-        if (turnoverWs && S.turnoverData.length === 0) empty.push('"' + TURNOVER_SHEET_NAME + '"');
-        if (turnoverMcWs && S.turnoverMcData.length === 0) empty.push('"' + TURNOVER_MC_SHEET_NAME + '"');
-
-        hideLoading();
-        if (missing.length) {
-          showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
-            ". Add a worksheet object named exactly that (case-insensitive) — " +
-            '"' + AGING_SHEET_NAME + '" feeds section 01\'s charts, "' + AGING_DETAIL_SHEET_NAME +
-            '" feeds the KPI row\'s SKU Count/Dead Stock Value (and Aging > 180 Days as a fallback), "' + TURNOVER_SHEET_NAME +
-            '" feeds the rest of the KPI row, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
-            '" feed section 02-03, "' + TURNOVER_MC_SHEET_NAME + '" feeds the Turnover-by-MC (Top10) table.');
-        } else if (empty.length) {
-          showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
-            ". Every row needs UR_AMT or UR_QTY to be non-zero — check that those fields are actually " +
-            "placed on the worksheet (on the Marks card, e.g. as Detail), not just present in the data " +
-            "source. Open the browser dev console for a \"[VendorStockPortal] columns detected\" log " +
-            "showing exactly which columns were matched.");
-        } else {
-          hideError();
-        }
-        updateAll();
-      }
-
-      // "aging" produced rows but not one of them has a resolvable tier —
-      // aging_detail is already loaded above, so try it directly first,
-      // then, if that's no better, read straight from its underlying
-      // table(s), bypassing summary aggregation entirely.
-      if (!agingTierTotallyUnresolved(agingRecords)) { finish(); return; }
-
-      if (tierResolvedCount(S.agingDetailData) > 0) {
-        agingDiag.fallback = 'AGING_TIER unresolved on every row of "' + AGING_SHEET_NAME + '" — used "' + AGING_DETAIL_SHEET_NAME +
-          '" instead (' + tierResolvedCount(S.agingDetailData) + " of " + S.agingDetailData.length + " rows resolved a tier).";
-        agingRecords = S.agingDetailData;
-        finish();
-        return;
-      }
-
-      readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
-        if (tierResolvedCount(underlyingRecords) > 0) {
-          agingDiag.fallback = 'AGING_TIER unresolved via getSummaryDataAsync on every sheet tried — used underlying table data for "' +
-            AGING_DETAIL_SHEET_NAME + '" instead (' + tierResolvedCount(underlyingRecords) + " of " + underlyingRecords.length + " rows resolved a tier).";
-          agingRecords = underlyingRecords;
-        } else {
-          agingDiag.fallback = 'AGING_TIER never resolved — tried "' + AGING_SHEET_NAME + '", "' + AGING_DETAIL_SHEET_NAME +
-            '" (summary), and its underlying table(s) directly. Underlying tables tried: ' +
-            (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".";
-        }
-        finish();
+      // BRANCH on turnover_by_branch and BRAND on turnover_brand have both
+      // shown the same "confirmed present in Tableau, absent from
+      // getSummaryDataAsync" symptom as AGING_TIER/CLASS_STOCK — retry via
+      // each sheet's underlying table(s) when that happens. aging_detail's
+      // own CLASS_STOCK gets the same check here — independent of whatever
+      // happens with "aging"'s own AGING_TIER below, since SKU Count/Dead
+      // Stock Value need aging_detail's CLASS_STOCK/ARTICLE_ID regardless
+      // of whether "aging" itself ever needs aging_detail as a fallback.
+      return Promise.all([
+        withFieldFallback(turnoverByBranchWs, S.turnoverByBranchData, "branch", "Unspecified"),
+        withFieldFallback(turnoverBrandWs, S.turnoverBrandData, "brand", ""),
+        withFieldFallback(agingDetailWs, S.agingDetailData, "classStock", "Unclassified")
+      ]).then(function (fixed) {
+        S.turnoverByBranchData = fixed[0];
+        S.turnoverBrandData = fixed[1];
+        S.agingDetailData = fixed[2];
+        return continueLoad();
       });
+
+      function continueLoad() {
+        function finish() {
+          S.agingData = agingRecords;
+          renderDiagInfo(agingDiag, turnoverDiag);
+
+          var titleSource = S.agingData[0] || S.turnoverData[0] || S.turnoverByBranchData[0] || S.turnoverMcData[0];
+          if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
+          document.getElementById("metaSnapshot").textContent =
+            formatSnapshotDate(titleSource && titleSource.populationDate) || new Date().toISOString().slice(0, 10);
+
+          var missing = [];
+          if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
+          if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
+          if (!turnoverByBranchWs) missing.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
+          if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
+          if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
+          if (!turnoverMcWs) missing.push('"' + TURNOVER_MC_SHEET_NAME + '"');
+
+          // Found the worksheet, but it produced zero usable rows — different
+          // problem than "not found", and silent otherwise, so call it out
+          // explicitly instead of just showing an empty section.
+          var empty = [];
+          if (agingWs && S.agingData.length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
+          if (agingDetailWs && S.agingDetailData.length === 0) empty.push('"' + AGING_DETAIL_SHEET_NAME + '"');
+          if (turnoverByBranchWs && S.turnoverByBranchData.length === 0) empty.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
+          if (turnoverBrandWs && S.turnoverBrandData.length === 0) empty.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
+          if (turnoverWs && S.turnoverData.length === 0) empty.push('"' + TURNOVER_SHEET_NAME + '"');
+          if (turnoverMcWs && S.turnoverMcData.length === 0) empty.push('"' + TURNOVER_MC_SHEET_NAME + '"');
+
+          hideLoading();
+          if (missing.length) {
+            showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
+              ". Add a worksheet object named exactly that (case-insensitive) — " +
+              '"' + AGING_SHEET_NAME + '" feeds section 01\'s charts, "' + AGING_DETAIL_SHEET_NAME +
+              '" feeds the KPI row\'s SKU Count/Dead Stock Value (and Aging > 180 Days as a fallback), "' + TURNOVER_SHEET_NAME +
+              '" feeds the rest of the KPI row, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
+              '" feed section 02-03, "' + TURNOVER_MC_SHEET_NAME + '" feeds the Turnover-by-MC (Top10) table.');
+          } else if (empty.length) {
+            showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
+              ". Every row needs UR_AMT or UR_QTY to be non-zero — check that those fields are actually " +
+              "placed on the worksheet (on the Marks card, e.g. as Detail), not just present in the data " +
+              "source. Open the browser dev console for a \"[VendorStockPortal] columns detected\" log " +
+              "showing exactly which columns were matched.");
+          } else {
+            hideError();
+          }
+          updateAll();
+        }
+
+        // "aging" produced rows but not one of them has a resolvable tier —
+        // aging_detail is already loaded above, so try it directly first,
+        // then, if that's no better, read straight from its underlying
+        // table(s), bypassing summary aggregation entirely.
+        if (!agingTierTotallyUnresolved(agingRecords)) { finish(); return; }
+
+        if (tierResolvedCount(S.agingDetailData) > 0) {
+          agingDiag.fallback = 'AGING_TIER unresolved on every row of "' + AGING_SHEET_NAME + '" — used "' + AGING_DETAIL_SHEET_NAME +
+            '" instead (' + tierResolvedCount(S.agingDetailData) + " of " + S.agingDetailData.length + " rows resolved a tier).";
+          agingRecords = S.agingDetailData;
+          finish();
+          return;
+        }
+
+        readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
+          if (tierResolvedCount(underlyingRecords) > 0) {
+            agingDiag.fallback = 'AGING_TIER unresolved via getSummaryDataAsync on every sheet tried — used underlying table data for "' +
+              AGING_DETAIL_SHEET_NAME + '" instead (' + tierResolvedCount(underlyingRecords) + " of " + underlyingRecords.length + " rows resolved a tier).";
+            agingRecords = underlyingRecords;
+            // The plain summary read of aging_detail was the total-loss one
+            // that triggered this branch — SKU Count/Dead Stock Value would
+            // otherwise keep reading that same field-poor data even though
+            // the underlying-table read just proved richer.
+            S.agingDetailData = underlyingRecords;
+          } else {
+            agingDiag.fallback = 'AGING_TIER never resolved — tried "' + AGING_SHEET_NAME + '", "' + AGING_DETAIL_SHEET_NAME +
+              '" (summary), and its underlying table(s) directly. Underlying tables tried: ' +
+              (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".";
+          }
+          finish();
+        });
+      }
     }).catch(function (err) {
       showError("Could not load data from Tableau: " + (err.message || err));
       hideLoading();
