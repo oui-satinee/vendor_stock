@@ -1060,7 +1060,9 @@
   // fields got column-mapped, and any fallback used. Always hidden (its
   // container's CSS is display:none) per user request, even while a
   // fallback is active — still populated every load, so it stays
-  // inspectable via dev tools if the aging-tier issue needs revisiting.
+  // inspectable via dev tools (or by re-adding el.style.display = "block"
+  // below) if a similar "field visible in Tableau, missing via the
+  // Extensions API" issue needs revisiting.
   function renderDiagInfo(agingDiag, turnoverDiag) {
     function line(name, diag) {
       if (!diag.found) return name + ": worksheet not found";
@@ -1078,11 +1080,6 @@
     var el = document.getElementById("diagInfo");
     el.textContent = "all worksheets on this dashboard: " + allNames + "\n" +
       line(AGING_SHEET_NAME, agingDiag) + "\n" + line(TURNOVER_SHEET_NAME, turnoverDiag);
-    // Temporarily forced visible again (was hidden per earlier request) —
-    // actively debugging why CLASS_STOCK/"B3G Dead" resolves to 0 on
-    // "turnover" despite being confirmed present in Tableau itself; same
-    // class of issue as the AGING_TIER saga. Hide again once resolved.
-    el.style.display = "block";
   }
 
   function loadAllData() {
