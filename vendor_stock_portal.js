@@ -555,7 +555,7 @@
 
   function drawVendorBranchTO(records) {
     var dims = VBRANCH_DIM_ORDER.filter(function (d) { return S.vBranchActiveDims.indexOf(d) !== -1; });
-    var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.value - a.value; });
+    var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.to - a.to; });
 
     document.getElementById("vBranchTOTitle").textContent = "มูลค่า จำนวน และ Turnover ตาม " + dims.map(function (d) { return VBRANCH_DIM_LABELS[d]; }).join(" และ ");
 
@@ -568,12 +568,12 @@
     function labelOf(d) { return dims.map(function (k) { return d[k]; }).join(" · "); }
 
     renderBars("vBranchTOChart", rows, {
-      value: function (d) { return d.value; },
+      value: function (d) { return d.to; },
       label: labelOf,
       color: function () { return "var(--accent)"; },
-      valueLabel: function (d) { return fmtTHB(d.value) + '<span class="sub">' + fmtInt(d.qty) + " ชิ้น · " + fmtDays(d.to) + "</span>"; },
+      valueLabel: function (d) { return fmtDays(d.to) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>"; },
       tipTitle: labelOf,
-      tipRows: function (d) { return [["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)], ["Turnover (days of supply)", fmtDays(d.to)]]; }
+      tipRows: function (d) { return [["Turnover (days of supply)", fmtDays(d.to)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
     });
 
     var totalValue = 0, totalQty = 0, totalAvgDaily = 0;
