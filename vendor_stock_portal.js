@@ -235,15 +235,17 @@
   var AGING_SHEET_NAME = "aging";
   var STOCK_SHEET_NAME = "stock";
   var AGING_DETAIL_SHEET_NAME = "aging_detail";
-  var STOCK_DETAIL_SHEET_NAME = "stock_detail";
   var TURNOVER_BY_BRANCH_SHEET_NAME = "turnover_by_branch";
   var TURNOVER_BRAND_SHEET_NAME = "turnover_brand";
+  var TURNOVER_SHEET_NAME = "turnover";
+  var STOCK_BRANCH_SHEET_NAME = "stock_branch";
 
   var S = {
     agingData: [],
     stockData: [],
     turnoverByBranchData: [],
     turnoverBrandData: [],
+    turnoverData: [],
     excludeDC: false,
     branchMetric: "amt",
     mcActiveDims: ["mch3"]
@@ -263,6 +265,9 @@
   }
   function activeTurnoverBrandData() {
     return S.excludeDC ? S.turnoverBrandData.filter(function (d) { return !d.isDC; }) : S.turnoverBrandData;
+  }
+  function activeTurnoverData() {
+    return S.excludeDC ? S.turnoverData.filter(function (d) { return !d.isDC; }) : S.turnoverData;
   }
 
   // ─── Formatting ───────────────────────────────────────────
@@ -382,19 +387,21 @@
     return skuCountSum > 0 ? skuCountSum : Object.keys(skuSet).length;
   }
 
-  function computeKPIs(records) {
-    var totalValue = 0, totalQty = 0, deadValue = 0, aging180Value = 0;
-    var branchSet = {};
-    records.forEach(function (d) {
+  // Total Stock Value / UR_QTY / SKU Count / Dead Stock Value come from
+  // "turnover" — Aging > 180 Days is the one KPI that genuinely needs
+  // AGING_TIER, so it alone still comes from "aging"'s tierIdx.
+  function computeKPIs(turnoverRecords, agingRecords) {
+    var totalValue = 0, totalQty = 0, deadValue = 0;
+    turnoverRecords.forEach(function (d) {
       totalValue += d.urAmt;
       totalQty += d.urQty;
-      branchSet[d.branch] = true;
       if (d.classStock.toLowerCase().indexOf("dead") !== -1) deadValue += d.urAmt;
-      if (d.tierIdx >= 5) aging180Value += d.urAmt;
     });
+    var aging180Value = 0;
+    agingRecords.forEach(function (d) { if (d.tierIdx >= 5) aging180Value += d.urAmt; });
     return {
       totalValue: totalValue, totalQty: totalQty,
-      sku: countSkus(records), branchCount: Object.keys(branchSet).length,
+      sku: countSkus(turnoverRecords),
       deadValue: deadValue, deadPct: totalValue ? deadValue / totalValue * 100 : 0,
       aging180Value: aging180Value, aging180Pct: totalValue ? aging180Value / totalValue * 100 : 0
     };
@@ -705,12 +712,18 @@
     hideError();
 
     var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
-    var stockDetailWs = findWorksheetByName(STOCK_DETAIL_SHEET_NAME);
+    var stockBranchWs = findWorksheetByName(STOCK_BRANCH_SHEET_NAME);
+    var turnoverWs = findWorksheetByName(TURNOVER_SHEET_NAME);
+    var turnoverBrandWs = findWorksheetByName(TURNOVER_BRAND_SHEET_NAME);
     var agingDetailDiag = {};
 
-    Promise.all([readWorksheetRecords(agingDetailWs, agingDetailDiag), readWorksheetRecords(stockDetailWs)]).then(function (results) {
+    Promise.all([readWorksheetRecords(agingDetailWs, agingDetailDiag), readWorksheetRecords(stockBranchWs)]).then(function (results) {
       var stockRecords = S.excludeDC ? results[1].filter(function (d) { return !d.isDC; }) : results[1];
       var summaryAgingRecords = S.excludeDC ? results[0].filter(function (d) { return !d.isDC; }) : results[0];
+      // "turnover"/"turnover_brand" are already loaded eagerly (they also
+      // feed the on-screen boxes) — reuse rather than re-fetching.
+      var turnoverRecords = activeTurnoverData();
+      var turnoverBrandRecords = activeTurnoverBrandData();
 
       function buildTierWarning(records, sourceLabel) {
         var resolved = tierResolvedCount(records);
@@ -725,11 +738,14 @@
 
         var missing = [];
         if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
-        if (!stockDetailWs) missing.push('"' + STOCK_DETAIL_SHEET_NAME + '"');
+        if (!stockBranchWs) missing.push('"' + STOCK_BRANCH_SHEET_NAME + '"');
+        if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
+        if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
 
-        if (agingRecords.length === 0 && stockRecords.length === 0) {
-          showError("Export needs worksheet(s) named " +
-            '"' + AGING_DETAIL_SHEET_NAME + '" and/or "' + STOCK_DETAIL_SHEET_NAME + '" on this dashboard — neither was found.');
+        if (agingRecords.length === 0 && stockRecords.length === 0 && turnoverRecords.length === 0 && turnoverBrandRecords.length === 0) {
+          showError("Export needs at least one of the worksheets named " +
+            '"' + AGING_DETAIL_SHEET_NAME + '", "' + STOCK_BRANCH_SHEET_NAME + '", "' + TURNOVER_SHEET_NAME + '", "' +
+            TURNOVER_BRAND_SHEET_NAME + '" — none were found.');
           return;
         }
 
@@ -745,32 +761,34 @@
         }
 
         if (stockRecords.length > 0) {
-          var stockSnapshotDate = formatSnapshotDate(stockRecords[0].populationDate);
-          var stockVendorId = stockRecords[0].vendorId, stockVendorName = stockRecords[0].vendorName;
-
           var stockByBranchHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "ARTICLE_ID", "ARTICLE_NAME_TH", "ITEM_FLAG", "UR_QTY", "UR_AMT", "POPULATION_DATE"];
           var stockByBranchRows = stockRecords.map(function (d) {
             return [d.vendorId, d.vendorName, d.branch, d.mch3, d.articleId, d.articleName, d.itemFlag,
               d.urQty, d.urAmt, formatSnapshotDate(d.populationDate)];
           });
           sheets += xlsSheetXml("Stock by branch", stockByBranchHeaders, stockByBranchRows, [0, 0, 0, 0, 0, 0, 0, 1, 1, 0]);
+        }
 
-          var hasTurnover = stockRecords.some(function (d) { return d.avgDaily > 0; });
-          if (hasTurnover) {
-            var branchTO = aggregateByDims(stockRecords, ["branch", "mch3"]).sort(function (a, b) { return b.value - a.value; });
-            var toHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "UR_AMT", "UR_QTY", "TURNOVER_DAYS", "UR_QTY_DEAD", "POPULATION_DATE"];
-            var toRows = branchTO.map(function (d) {
-              return [stockVendorId, stockVendorName, d.branch, d.mch3, d.value, d.qty, Math.round(d.to * 10) / 10, d.qtyDead, stockSnapshotDate];
-            });
-            sheets += xlsSheetXml("Turnover by branch", toHeaders, toRows, [0, 0, 0, 0, 1, 1, 1, 1, 0]);
+        if (turnoverRecords.length > 0) {
+          var turnoverSnapshotDate = formatSnapshotDate(turnoverRecords[0].populationDate);
+          var turnoverVendorId = turnoverRecords[0].vendorId, turnoverVendorName = turnoverRecords[0].vendorName;
+          var branchTO = aggregateByDims(turnoverRecords, ["branch"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
+          var toHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "UR_AMT", "UR_QTY", "TURNOVER_DAYS", "UR_QTY_DEAD", "POPULATION_DATE"];
+          var toRows = branchTO.map(function (d) {
+            return [turnoverVendorId, turnoverVendorName, d.branch, d.value, d.qty, Math.round(d.toRaw * 10) / 10, d.qtyDead, turnoverSnapshotDate];
+          });
+          sheets += xlsSheetXml("Turnover", toHeaders, toRows, [0, 0, 0, 1, 1, 1, 1, 0]);
+        }
 
-            var brandTO = aggregateByDims(stockRecords, ["mch3", "brand", "classStock"]).sort(function (a, b) { return b.value - a.value; });
-            var brandHeaders = ["VENDOR_ID", "VENDOR_NAME", "MCH3", "BRAND", "CLASS_STOCK", "UR_AMT", "UR_QTY", "TURNOVER_DAYS", "POPULATION_DATE"];
-            var brandRows = brandTO.map(function (d) {
-              return [stockVendorId, stockVendorName, d.mch3, d.brand, d.classStock, d.value, d.qty, Math.round(d.to * 10) / 10, stockSnapshotDate];
-            });
-            sheets += xlsSheetXml("Turnover by BRAND", brandHeaders, brandRows, [0, 0, 0, 0, 0, 1, 1, 1, 0]);
-          }
+        if (turnoverBrandRecords.length > 0) {
+          var brandSnapshotDate = formatSnapshotDate(turnoverBrandRecords[0].populationDate);
+          var brandVendorId = turnoverBrandRecords[0].vendorId, brandVendorName = turnoverBrandRecords[0].vendorName;
+          var brandTO = aggregateByDims(turnoverBrandRecords, ["brand"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
+          var brandHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRAND", "UR_AMT", "UR_QTY", "TURNOVER_DAYS", "POPULATION_DATE"];
+          var brandRows = brandTO.map(function (d) {
+            return [brandVendorId, brandVendorName, d.brand, d.value, d.qty, Math.round(d.toRaw * 10) / 10, brandSnapshotDate];
+          });
+          sheets += xlsSheetXml("Turnover by BRAND", brandHeaders, brandRows, [0, 0, 0, 1, 1, 1, 0]);
         }
 
         var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
@@ -822,16 +840,18 @@
     var stockRecords = activeStockData();
     var turnoverByBranchRecords = activeTurnoverByBranchData();
     var turnoverBrandRecords = activeTurnoverBrandData();
+    var turnoverRecords = activeTurnoverData();
     var hasAging = agingRecords.length > 0;
     var hasStock = stockRecords.length > 0;
     var hasTurnoverByBranch = turnoverByBranchRecords.length > 0;
     var hasTurnoverBrand = turnoverBrandRecords.length > 0;
+    var hasTurnover = turnoverRecords.length > 0;
 
-    if (!hasAging && !hasStock && !hasTurnoverByBranch && !hasTurnoverBrand) {
+    if (!hasAging && !hasStock && !hasTurnoverByBranch && !hasTurnoverBrand && !hasTurnover) {
       document.getElementById("dashboard").style.display = "none";
       document.getElementById("emptyState").style.display = "block";
       document.getElementById("emptyState").textContent =
-        'No data available. Add worksheets named "' + AGING_SHEET_NAME + '", "' + TURNOVER_BY_BRANCH_SHEET_NAME +
+        'No data available. Add worksheets named "' + AGING_SHEET_NAME + '", "' + TURNOVER_SHEET_NAME + '", "' + TURNOVER_BY_BRANCH_SHEET_NAME +
         '", "' + TURNOVER_BRAND_SHEET_NAME + '" and/or "' + STOCK_SHEET_NAME + '" to this dashboard.';
       return;
     }
@@ -840,13 +860,18 @@
 
     // "Exclude DC" applies across every sheet at once, so its visibility is
     // decided from the raw (unfiltered) data across all of them.
-    var hasDcFlag = S.agingData.concat(S.stockData, S.turnoverByBranchData, S.turnoverBrandData).some(function (d) { return d.isDC; });
+    var hasDcFlag = S.agingData.concat(S.stockData, S.turnoverByBranchData, S.turnoverBrandData, S.turnoverData).some(function (d) { return d.isDC; });
     document.getElementById("excludeDcBtn").style.display = hasDcFlag ? "" : "none";
 
-    document.getElementById("kpi").style.display = hasAging ? "" : "none";
     document.getElementById("aging").style.display = hasAging ? "" : "none";
     if (hasAging) {
-      var kpi = computeKPIs(agingRecords);
+      drawAgingChart(agingRecords);
+      drawClassAgingChart(agingRecords);
+    }
+
+    document.getElementById("kpi").style.display = (hasTurnover || hasAging) ? "" : "none";
+    if (hasTurnover || hasAging) {
+      var kpi = computeKPIs(turnoverRecords, agingRecords);
       document.getElementById("kpiValue").textContent = fmtTHB(kpi.totalValue);
       document.getElementById("kpiValueSub").textContent = "";
       document.getElementById("kpiQty").textContent = fmtInt(kpi.totalQty);
@@ -855,9 +880,6 @@
       document.getElementById("kpiDeadSub").textContent = pct1(kpi.deadPct) + " of stock value";
       document.getElementById("kpiAging180").textContent = fmtTHB(kpi.aging180Value);
       document.getElementById("kpiAging180Sub").textContent = pct1(kpi.aging180Pct) + " of stock value";
-
-      drawAgingChart(agingRecords);
-      drawClassAgingChart(agingRecords);
     }
 
     document.getElementById("branch").style.display = hasTurnoverByBranch ? "" : "none";
@@ -1022,24 +1044,27 @@
     var stockWs = findWorksheetByName(STOCK_SHEET_NAME);
     var turnoverByBranchWs = findWorksheetByName(TURNOVER_BY_BRANCH_SHEET_NAME);
     var turnoverBrandWs = findWorksheetByName(TURNOVER_BRAND_SHEET_NAME);
+    var turnoverWs = findWorksheetByName(TURNOVER_SHEET_NAME);
     var agingDiag = {}, stockDiag = {};
 
     Promise.all([
       readWorksheetRecords(agingWs, agingDiag),
       readWorksheetRecords(stockWs, stockDiag),
       readWorksheetRecords(turnoverByBranchWs),
-      readWorksheetRecords(turnoverBrandWs)
+      readWorksheetRecords(turnoverBrandWs),
+      readWorksheetRecords(turnoverWs)
     ]).then(function (results) {
       var agingRecords = results[0];
       S.stockData = results[1];
       S.turnoverByBranchData = results[2];
       S.turnoverBrandData = results[3];
+      S.turnoverData = results[4];
 
       function finish() {
         S.agingData = agingRecords;
         renderDiagInfo(agingDiag, stockDiag);
 
-        var titleSource = S.agingData[0] || S.stockData[0] || S.turnoverByBranchData[0];
+        var titleSource = S.agingData[0] || S.turnoverData[0] || S.stockData[0] || S.turnoverByBranchData[0];
         if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
         document.getElementById("metaSnapshot").textContent =
           formatSnapshotDate(titleSource && titleSource.populationDate) || new Date().toISOString().slice(0, 10);
@@ -1049,6 +1074,7 @@
         if (!stockWs) missing.push('"' + STOCK_SHEET_NAME + '"');
         if (!turnoverByBranchWs) missing.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
         if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
+        if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
 
         // Found the worksheet, but it produced zero usable rows — different
         // problem than "not found", and silent otherwise, so call it out
@@ -1058,12 +1084,14 @@
         if (stockWs && S.stockData.length === 0) empty.push('"' + STOCK_SHEET_NAME + '"');
         if (turnoverByBranchWs && S.turnoverByBranchData.length === 0) empty.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
         if (turnoverBrandWs && S.turnoverBrandData.length === 0) empty.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
+        if (turnoverWs && S.turnoverData.length === 0) empty.push('"' + TURNOVER_SHEET_NAME + '"');
 
         hideLoading();
         if (missing.length) {
           showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
             ". Add a worksheet object named exactly that (case-insensitive) — " +
-            '"' + AGING_SHEET_NAME + '" feeds section 01, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
+            '"' + AGING_SHEET_NAME + '" feeds section 01 (only its Aging > 180 Days KPI), "' + TURNOVER_SHEET_NAME +
+            '" feeds the rest of the KPI row, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
             '" feed section 02-03, "' + STOCK_SHEET_NAME + '" feeds the Turnover-by-MC table.');
         } else if (empty.length) {
           showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
