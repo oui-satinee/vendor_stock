@@ -246,6 +246,7 @@
     turnoverBrandData: [],
     turnoverData: [],
     turnoverMcData: [],
+    agingDetailData: [],
     branchMetric: "amt",
     // Exclude-DC used to be one global header toggle; now it's two
     // independent per-box toggles over the same turnover_by_branch data.
@@ -390,18 +391,25 @@
   // Total Stock Value / UR_QTY / SKU Count / Dead Stock Value come from
   // "turnover" — Aging > 180 Days is the one KPI that genuinely needs
   // AGING_TIER, so it alone still comes from "aging"'s tierIdx.
-  function computeKPIs(turnoverRecords, agingRecords) {
-    var totalValue = 0, totalQty = 0, deadValue = 0;
+  // SKU Count and Dead Stock Value read agingDetailRecords ("aging_detail")
+  // rather than turnoverRecords ("turnover") — "turnover" doesn't carry
+  // CLASS_STOCK/ARTICLE_ID via the Extensions API even when confirmed
+  // present in Tableau itself, so it can't answer either reliably.
+  function computeKPIs(turnoverRecords, agingRecords, agingDetailRecords) {
+    var totalValue = 0, totalQty = 0;
     turnoverRecords.forEach(function (d) {
       totalValue += d.urAmt;
       totalQty += d.urQty;
+    });
+    var deadValue = 0;
+    agingDetailRecords.forEach(function (d) {
       if (d.classStock.toLowerCase().indexOf("dead") !== -1) deadValue += d.urAmt;
     });
     var aging180Value = 0;
     agingRecords.forEach(function (d) { if (d.tierIdx >= 5) aging180Value += d.urAmt; });
     return {
       totalValue: totalValue, totalQty: totalQty,
-      sku: countSkus(turnoverRecords),
+      sku: countSkus(agingDetailRecords),
       deadValue: deadValue, deadPct: totalValue ? deadValue / totalValue * 100 : 0,
       aging180Value: aging180Value, aging180Pct: totalValue ? aging180Value / totalValue * 100 : 0
     };
@@ -876,7 +884,7 @@
 
     document.getElementById("kpi").style.display = (hasTurnover || hasAging) ? "" : "none";
     if (hasTurnover || hasAging) {
-      var kpi = computeKPIs(turnoverRecords, agingRecords);
+      var kpi = computeKPIs(turnoverRecords, agingRecords, S.agingDetailData);
       document.getElementById("kpiValue").textContent = fmtTHB(kpi.totalValue);
       document.getElementById("kpiValueSub").textContent = "";
       document.getElementById("kpiQty").textContent = fmtInt(kpi.totalQty);
@@ -1051,24 +1059,32 @@
     hideError();
 
     var agingWs = findWorksheetByName(AGING_SHEET_NAME);
+    var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
     var turnoverByBranchWs = findWorksheetByName(TURNOVER_BY_BRANCH_SHEET_NAME);
     var turnoverBrandWs = findWorksheetByName(TURNOVER_BRAND_SHEET_NAME);
     var turnoverWs = findWorksheetByName(TURNOVER_SHEET_NAME);
     var turnoverMcWs = findWorksheetByName(TURNOVER_MC_SHEET_NAME);
-    var agingDiag = {}, turnoverDiag = {};
+    var agingDiag = {}, turnoverDiag = {}, agingDetailDiag = {};
 
+    // aging_detail is now loaded eagerly (not just lazily on Export) — the
+    // KPI row's SKU Count and Dead Stock Value read it directly, since
+    // "turnover" doesn't carry CLASS_STOCK/ARTICLE_ID via the Extensions
+    // API even when confirmed present in Tableau itself. Also reused below
+    // as the AGING_TIER fallback candidate instead of a separate fetch.
     Promise.all([
       readWorksheetRecords(agingWs, agingDiag),
+      readWorksheetRecords(agingDetailWs, agingDetailDiag),
       readWorksheetRecords(turnoverByBranchWs),
       readWorksheetRecords(turnoverBrandWs),
       readWorksheetRecords(turnoverWs, turnoverDiag),
       readWorksheetRecords(turnoverMcWs)
     ]).then(function (results) {
       var agingRecords = results[0];
-      S.turnoverByBranchData = results[1];
-      S.turnoverBrandData = results[2];
-      S.turnoverData = results[3];
-      S.turnoverMcData = results[4];
+      S.agingDetailData = results[1];
+      S.turnoverByBranchData = results[2];
+      S.turnoverBrandData = results[3];
+      S.turnoverData = results[4];
+      S.turnoverMcData = results[5];
 
       function finish() {
         S.agingData = agingRecords;
@@ -1081,6 +1097,7 @@
 
         var missing = [];
         if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
+        if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
         if (!turnoverByBranchWs) missing.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
         if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
         if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
@@ -1091,6 +1108,7 @@
         // explicitly instead of just showing an empty section.
         var empty = [];
         if (agingWs && S.agingData.length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
+        if (agingDetailWs && S.agingDetailData.length === 0) empty.push('"' + AGING_DETAIL_SHEET_NAME + '"');
         if (turnoverByBranchWs && S.turnoverByBranchData.length === 0) empty.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
         if (turnoverBrandWs && S.turnoverBrandData.length === 0) empty.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
         if (turnoverWs && S.turnoverData.length === 0) empty.push('"' + TURNOVER_SHEET_NAME + '"');
@@ -1100,7 +1118,8 @@
         if (missing.length) {
           showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
             ". Add a worksheet object named exactly that (case-insensitive) — " +
-            '"' + AGING_SHEET_NAME + '" feeds section 01 (only its Aging > 180 Days KPI), "' + TURNOVER_SHEET_NAME +
+            '"' + AGING_SHEET_NAME + '" feeds section 01\'s charts, "' + AGING_DETAIL_SHEET_NAME +
+            '" feeds the KPI row\'s SKU Count/Dead Stock Value (and Aging > 180 Days as a fallback), "' + TURNOVER_SHEET_NAME +
             '" feeds the rest of the KPI row, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
             '" feed section 02-03, "' + TURNOVER_MC_SHEET_NAME + '" feeds the Turnover-by-MC (Top10) table.');
         } else if (empty.length) {
@@ -1116,34 +1135,30 @@
       }
 
       // "aging" produced rows but not one of them has a resolvable tier —
-      // try "aging_detail" (SKU-grain, otherwise only read on Export) next,
-      // then, if that's no better, read straight from aging_detail's
-      // underlying table(s), bypassing summary aggregation entirely.
+      // aging_detail is already loaded above, so try it directly first,
+      // then, if that's no better, read straight from its underlying
+      // table(s), bypassing summary aggregation entirely.
       if (!agingTierTotallyUnresolved(agingRecords)) { finish(); return; }
 
-      var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
-      var agingDetailDiag = {};
-      readWorksheetRecords(agingDetailWs, agingDetailDiag).then(function (detailRecords) {
-        if (tierResolvedCount(detailRecords) > 0) {
-          agingDiag.fallback = 'AGING_TIER unresolved on every row of "' + AGING_SHEET_NAME + '" — used "' + AGING_DETAIL_SHEET_NAME +
-            '" instead (' + tierResolvedCount(detailRecords) + " of " + detailRecords.length + " rows resolved a tier).";
-          agingRecords = detailRecords;
-          finish();
-          return;
-        }
+      if (tierResolvedCount(S.agingDetailData) > 0) {
+        agingDiag.fallback = 'AGING_TIER unresolved on every row of "' + AGING_SHEET_NAME + '" — used "' + AGING_DETAIL_SHEET_NAME +
+          '" instead (' + tierResolvedCount(S.agingDetailData) + " of " + S.agingDetailData.length + " rows resolved a tier).";
+        agingRecords = S.agingDetailData;
+        finish();
+        return;
+      }
 
-        readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
-          if (tierResolvedCount(underlyingRecords) > 0) {
-            agingDiag.fallback = 'AGING_TIER unresolved via getSummaryDataAsync on every sheet tried — used underlying table data for "' +
-              AGING_DETAIL_SHEET_NAME + '" instead (' + tierResolvedCount(underlyingRecords) + " of " + underlyingRecords.length + " rows resolved a tier).";
-            agingRecords = underlyingRecords;
-          } else {
-            agingDiag.fallback = 'AGING_TIER never resolved — tried "' + AGING_SHEET_NAME + '", "' + AGING_DETAIL_SHEET_NAME +
-              '" (summary), and its underlying table(s) directly. Underlying tables tried: ' +
-              (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".";
-          }
-          finish();
-        });
+      readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
+        if (tierResolvedCount(underlyingRecords) > 0) {
+          agingDiag.fallback = 'AGING_TIER unresolved via getSummaryDataAsync on every sheet tried — used underlying table data for "' +
+            AGING_DETAIL_SHEET_NAME + '" instead (' + tierResolvedCount(underlyingRecords) + " of " + underlyingRecords.length + " rows resolved a tier).";
+          agingRecords = underlyingRecords;
+        } else {
+          agingDiag.fallback = 'AGING_TIER never resolved — tried "' + AGING_SHEET_NAME + '", "' + AGING_DETAIL_SHEET_NAME +
+            '" (summary), and its underlying table(s) directly. Underlying tables tried: ' +
+            (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".";
+        }
+        finish();
       });
     }).catch(function (err) {
       showError("Could not load data from Tableau: " + (err.message || err));
