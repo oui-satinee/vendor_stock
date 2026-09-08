@@ -36,7 +36,8 @@
     skuCount:    ["sku_count", "skucount", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"],
     populationDate: ["population_date", "populationdate"],
     urQtyDead:   ["ur_qty_dead", "urqtydead"],
-    tileSize:    ["tile_size", "tilesize"]
+    tileSize:    ["tile_size", "tilesize"],
+    salesQty:    ["sales_qty", "salesqty"]
   };
 
   var TIER_LABELS_FULL = [
@@ -215,7 +216,8 @@
           populationDate: get("populationDate"),
           urQtyDead:   parseNumber(get("urQtyDead")),
           agingDays:   parseNumber(agingDaysRaw),
-          turnoverDays: turnoverDays
+          turnoverDays: turnoverDays,
+          salesQty:    parseNumber(get("salesQty"))
         });
       })();
     }
@@ -535,7 +537,7 @@
     records.forEach(function (r) {
       var key = dims.map(function (d) { return r[d]; }).join("");
       if (!groups[key]) {
-        var g = { value: 0, qty: 0, avgDaily: 0, qtyDead: 0, isDC: false, toRawSum: 0, toRawCount: 0 };
+        var g = { value: 0, qty: 0, avgDaily: 0, qtyDead: 0, isDC: false, salesQtySum: 0 };
         dims.forEach(function (d) { g[d] = r[d]; });
         groups[key] = g; order.push(key);
       }
@@ -544,15 +546,15 @@
       groups[key].avgDaily += r.avgDaily;
       groups[key].qtyDead += r.urQtyDead;
       if (r.isDC) groups[key].isDC = true;
-      // Straight average of the raw T_O column, kept separate from the
-      // qty/avgDaily-derived `to` below — used wherever the data source's
-      // own T_O value must be shown as-is instead of being re-aggregated.
-      if (r.turnoverDays > 0) { groups[key].toRawSum += r.turnoverDays; groups[key].toRawCount++; }
+      groups[key].salesQtySum += r.salesQty;
     });
     return order.map(function (k) {
       var g = groups[k];
       g.to = g.avgDaily > 0 ? g.qty / g.avgDaily : 0;
-      g.toRaw = g.toRawCount > 0 ? g.toRawSum / g.toRawCount : 0;
+      // Days of supply per SUM([UR QTY]) / (SUM([sales_qty]) / 90) — a
+      // 90-day sales rate, computed at whatever grain `dims` groups by
+      // (e.g. sum of UR_QTY and sales_qty across just BRANCH+MCH3).
+      g.toFormula = g.salesQtySum > 0 ? g.qty / (g.salesQtySum / 90) : 0;
       return g;
     });
   }
@@ -561,7 +563,7 @@
 
   function drawVendorBranchTO(records) {
     var dims = VBRANCH_DIM_ORDER.filter(function (d) { return S.vBranchActiveDims.indexOf(d) !== -1; });
-    var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.to - a.to; });
+    var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.toFormula - a.toFormula; });
 
     document.getElementById("vBranchTOTitle").textContent = "Turnover ตาม " + dims.map(function (d) { return VBRANCH_DIM_LABELS[d]; }).join(" และ ");
 
@@ -574,22 +576,22 @@
     function labelOf(d) { return dims.map(function (k) { return d[k]; }).join(" · "); }
 
     renderBars("vBranchTOChart", rows, {
-      value: function (d) { return d.to; },
+      value: function (d) { return d.toFormula; },
       label: labelOf,
       color: function () { return "var(--accent)"; },
-      valueLabel: function (d) { return fmtDays(d.to) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>"; },
+      valueLabel: function (d) { return fmtDays(d.toFormula) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>"; },
       tipTitle: labelOf,
-      tipRows: function (d) { return [["Turnover (days of supply)", fmtDays(d.to)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
+      tipRows: function (d) { return [["Turnover (days of supply)", fmtDays(d.toFormula)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
     });
 
-    var totalValue = 0, totalQty = 0, totalAvgDaily = 0;
-    rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; totalAvgDaily += d.avgDaily; });
-    var totalTurnover = totalAvgDaily > 0 ? totalQty / totalAvgDaily : 0;
+    var totalValue = 0, totalQty = 0, totalSalesQty = 0;
+    rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; totalSalesQty += d.salesQtySum; });
+    var totalTurnover = totalSalesQty > 0 ? totalQty / (totalSalesQty / 90) : 0;
 
     var headers = dims.map(function (d) { return VBRANCH_DIM_LABELS[d]; }).concat(["Value (THB)", "Quantity", "Turnover"]);
     var tableRows = rows.map(function (d) {
       var cells = dims.map(function (k) { return d[k] + (k === "branch" && d.isDC ? " (DC)" : ""); });
-      return cells.concat([fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.to)]);
+      return cells.concat([fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.toFormula)]);
     });
     tableRows.push(dims.map(function (d, i) { return i === 0 ? "Total" : ""; }).concat([fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]));
     renderTable("vBranchTOChart", headers, tableRows);
@@ -606,7 +608,7 @@
 
     var headers = dims.map(function (d) { return MC_DIM_LABELS[d]; }).concat(["Turnover", "UR_AMT", "Quantity"]);
     var tableRows = rows.map(function (d) {
-      return dims.map(function (k) { return d[k]; }).concat([fmtDays(d.toRaw), fmtTHBFull(d.value), fmtInt(d.qty)]);
+      return dims.map(function (k) { return d[k]; }).concat([fmtDays(d.toFormula), fmtTHBFull(d.value), fmtInt(d.qty)]);
     });
 
     var html = '<table class="data-table"><thead><tr>';
