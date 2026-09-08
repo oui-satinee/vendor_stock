@@ -1022,7 +1022,7 @@
   // container's CSS is display:none) per user request, even while a
   // fallback is active — still populated every load, so it stays
   // inspectable via dev tools if the aging-tier issue needs revisiting.
-  function renderDiagInfo(agingDiag) {
+  function renderDiagInfo(agingDiag, turnoverDiag) {
     function line(name, diag) {
       if (!diag.found) return name + ": worksheet not found";
       var cols = diag.colIndex ? Object.keys(diag.colIndex).sort().join(", ") : "(none)";
@@ -1038,7 +1038,12 @@
     }).join(", ");
     var el = document.getElementById("diagInfo");
     el.textContent = "all worksheets on this dashboard: " + allNames + "\n" +
-      line(AGING_SHEET_NAME, agingDiag);
+      line(AGING_SHEET_NAME, agingDiag) + "\n" + line(TURNOVER_SHEET_NAME, turnoverDiag);
+    // Temporarily forced visible again (was hidden per earlier request) —
+    // actively debugging why CLASS_STOCK/"B3G Dead" resolves to 0 on
+    // "turnover" despite being confirmed present in Tableau itself; same
+    // class of issue as the AGING_TIER saga. Hide again once resolved.
+    el.style.display = "block";
   }
 
   function loadAllData() {
@@ -1050,13 +1055,13 @@
     var turnoverBrandWs = findWorksheetByName(TURNOVER_BRAND_SHEET_NAME);
     var turnoverWs = findWorksheetByName(TURNOVER_SHEET_NAME);
     var turnoverMcWs = findWorksheetByName(TURNOVER_MC_SHEET_NAME);
-    var agingDiag = {};
+    var agingDiag = {}, turnoverDiag = {};
 
     Promise.all([
       readWorksheetRecords(agingWs, agingDiag),
       readWorksheetRecords(turnoverByBranchWs),
       readWorksheetRecords(turnoverBrandWs),
-      readWorksheetRecords(turnoverWs),
+      readWorksheetRecords(turnoverWs, turnoverDiag),
       readWorksheetRecords(turnoverMcWs)
     ]).then(function (results) {
       var agingRecords = results[0];
@@ -1067,7 +1072,7 @@
 
       function finish() {
         S.agingData = agingRecords;
-        renderDiagInfo(agingDiag);
+        renderDiagInfo(agingDiag, turnoverDiag);
 
         var titleSource = S.agingData[0] || S.turnoverData[0] || S.turnoverByBranchData[0] || S.turnoverMcData[0];
         if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
