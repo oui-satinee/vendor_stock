@@ -296,21 +296,30 @@
     <div class="section-head">
       <p class="section-kicker">03 — Stock Turnover</p>
     </div>
-    <div class="chart-card full">
-      <div class="chart-head">
-        <div><div class="chart-title" id="vBranchTOTitle">Turnover ตามสาขา</div></div>
-        <div class="chart-controls">
-          <div role="group" aria-label="Toggle breakdown dimensions" style="display:flex;gap:6px;">
-            <button class="btn" id="vBranchDimBranch" aria-pressed="true">สาขา</button>
-            <button class="btn" id="vBranchDimMch3" aria-pressed="false">MCH3</button>
-            <button class="btn" id="vBranchDimBrand" aria-pressed="false">Brand</button>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-head">
+          <div><div class="chart-title">Turnover ตาม สาขา</div></div>
+          <div class="chart-controls">
+            <button class="btn" data-toggle-table="vBranchTOChart">View table</button>
+            <button class="btn btn-icon" id="vBranchTOExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
           </div>
-          <button class="btn" data-toggle-table="vBranchTOChart">View table</button>
-          <button class="btn btn-icon" id="vBranchTOExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
         </div>
+        <div class="bars" id="vBranchTOChart"></div>
+        <div class="table-wrap table-view" id="vBranchTOChart-table" hidden></div>
       </div>
-      <div class="bars" id="vBranchTOChart"></div>
-      <div class="table-wrap table-view" id="vBranchTOChart-table" hidden></div>
+
+      <div class="chart-card">
+        <div class="chart-head">
+          <div><div class="chart-title">Turnover ตาม Brand</div></div>
+          <div class="chart-controls">
+            <button class="btn" data-toggle-table="brandTOChart">View table</button>
+            <button class="btn btn-icon" id="brandTOExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+          </div>
+        </div>
+        <div class="bars" id="brandTOChart"></div>
+        <div class="table-wrap table-view" id="brandTOChart-table" hidden></div>
+      </div>
     </div>
 
     <div class="chart-card full" style="margin-top:16px">

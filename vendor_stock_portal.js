@@ -236,18 +236,19 @@
   var STOCK_SHEET_NAME = "stock";
   var AGING_DETAIL_SHEET_NAME = "aging_detail";
   var STOCK_DETAIL_SHEET_NAME = "stock_detail";
+  var TURNOVER_BY_BRANCH_SHEET_NAME = "turnover_by_branch";
+  var TURNOVER_BRAND_SHEET_NAME = "turnover_brand";
 
   var S = {
     agingData: [],
     stockData: [],
+    turnoverByBranchData: [],
+    turnoverBrandData: [],
     excludeDC: false,
     branchMetric: "amt",
-    vBranchActiveDims: ["branch"],
     mcActiveDims: ["mch3"]
   };
   var unregisterFns = [];
-  var VBRANCH_DIM_ORDER = ["branch", "mch3", "brand"];
-  var VBRANCH_DIM_LABELS = { branch: "สาขา", mch3: "MCH3", brand: "Brand" };
   var MC_DIM_ORDER = ["mch3", "mch2", "mch1", "mc", "brand", "classStock"];
   var MC_DIM_LABELS = { mch3: "MCH3", mch2: "MCH2", mch1: "MCH1", mc: "MC", brand: "Brand", classStock: "CLASS_STOCK" };
 
@@ -256,6 +257,12 @@
   }
   function activeStockData() {
     return S.excludeDC ? S.stockData.filter(function (d) { return !d.isDC; }) : S.stockData;
+  }
+  function activeTurnoverByBranchData() {
+    return S.excludeDC ? S.turnoverByBranchData.filter(function (d) { return !d.isDC; }) : S.turnoverByBranchData;
+  }
+  function activeTurnoverBrandData() {
+    return S.excludeDC ? S.turnoverBrandData.filter(function (d) { return !d.isDC; }) : S.turnoverBrandData;
   }
 
   // ─── Formatting ───────────────────────────────────────────
@@ -537,7 +544,7 @@
     records.forEach(function (r) {
       var key = dims.map(function (d) { return r[d]; }).join("");
       if (!groups[key]) {
-        var g = { value: 0, qty: 0, avgDaily: 0, qtyDead: 0, isDC: false, salesQtySum: 0 };
+        var g = { value: 0, qty: 0, avgDaily: 0, qtyDead: 0, isDC: false, salesQtySum: 0, toRawSum: 0, toRawCount: 0 };
         dims.forEach(function (d) { g[d] = r[d]; });
         groups[key] = g; order.push(key);
       }
@@ -547,6 +554,10 @@
       groups[key].qtyDead += r.urQtyDead;
       if (r.isDC) groups[key].isDC = true;
       groups[key].salesQtySum += r.salesQty;
+      // Straight average of the raw T_O column — used wherever the data
+      // source's own T_O value must be shown as-is instead of being
+      // re-derived from qty/avgDaily or the sales_qty formula below.
+      if (r.turnoverDays > 0) { groups[key].toRawSum += r.turnoverDays; groups[key].toRawCount++; }
     });
     return order.map(function (k) {
       var g = groups[k];
@@ -555,47 +566,74 @@
       // 90-day sales rate, computed at whatever grain `dims` groups by
       // (e.g. sum of UR_QTY and sales_qty across just BRANCH+MCH3).
       g.toFormula = g.salesQtySum > 0 ? g.qty / (g.salesQtySum / 90) : 0;
+      g.toRaw = g.toRawCount > 0 ? g.toRawSum / g.toRawCount : 0;
       return g;
     });
   }
 
   var vBranchTOExportState = null;
 
+  // Fixed to one row per branch, reading T_O as-is from a dedicated
+  // "turnover_by_branch" sheet — no dims toggle, no re-derivation.
   function drawVendorBranchTO(records) {
-    var dims = VBRANCH_DIM_ORDER.filter(function (d) { return S.vBranchActiveDims.indexOf(d) !== -1; });
-    var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.toFormula - a.toFormula; });
-
-    document.getElementById("vBranchTOTitle").textContent = "Turnover ตาม " + dims.map(function (d) { return VBRANCH_DIM_LABELS[d]; }).join(" และ ");
-
-    var labelW = { 1: 168, 2: 220, 3: 280 }[dims.length] || 168;
-    var labelWMobile = { 1: 108, 2: 145, 3: 180 }[dims.length] || 108;
-    var chartContainer = document.getElementById("vBranchTOChart");
-    chartContainer.style.setProperty("--label-w", labelW + "px");
-    chartContainer.style.setProperty("--label-w-mobile", labelWMobile + "px");
-
-    function labelOf(d) { return dims.map(function (k) { return d[k]; }).join(" · "); }
+    var rows = aggregateByDims(records, ["branch"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
 
     renderBars("vBranchTOChart", rows, {
-      value: function (d) { return d.toFormula; },
-      label: labelOf,
+      value: function (d) { return d.toRaw; },
+      label: function (d) { return d.branch; },
       color: function () { return "var(--accent)"; },
-      valueLabel: function (d) { return fmtDays(d.toFormula) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>"; },
-      tipTitle: labelOf,
-      tipRows: function (d) { return [["Turnover (days of supply)", fmtDays(d.toFormula)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
+      valueLabel: function (d) { return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>"; },
+      tipTitle: function (d) { return d.branch; },
+      tipRows: function (d) { return [["Turnover (T_O)", fmtDays(d.toRaw)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
     });
 
-    var totalValue = 0, totalQty = 0, totalSalesQty = 0;
-    rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; totalSalesQty += d.salesQtySum; });
-    var totalTurnover = totalSalesQty > 0 ? totalQty / (totalSalesQty / 90) : 0;
+    var totalValue = 0, totalQty = 0, totalToRawSum = 0, totalToRawCount = 0;
+    rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; });
+    records.forEach(function (d) { if (d.turnoverDays > 0) { totalToRawSum += d.turnoverDays; totalToRawCount++; } });
+    var totalTurnover = totalToRawCount > 0 ? totalToRawSum / totalToRawCount : 0;
 
-    var headers = dims.map(function (d) { return VBRANCH_DIM_LABELS[d]; }).concat(["Value (THB)", "Quantity", "Turnover"]);
+    var headers = ["สาขา", "Value (THB)", "Quantity", "Turnover"];
     var tableRows = rows.map(function (d) {
-      var cells = dims.map(function (k) { return d[k] + (k === "branch" && d.isDC ? " (DC)" : ""); });
-      return cells.concat([fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.toFormula)]);
+      return [d.branch + (d.isDC ? " (DC)" : ""), fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.toRaw)];
     });
-    tableRows.push(dims.map(function (d, i) { return i === 0 ? "Total" : ""; }).concat([fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]));
+    tableRows.push(["Total", fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]);
     renderTable("vBranchTOChart", headers, tableRows);
     vBranchTOExportState = { headers: headers, rows: tableRows };
+  }
+
+  var brandTOExportState = null;
+
+  // Fixed to one row per brand, reading T_O as-is from a dedicated
+  // "turnover_brand" sheet — mirrors drawVendorBranchTO above.
+  function drawTurnoverByBrand(records) {
+    var rows = aggregateByDims(records, ["brand"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
+
+    renderBars("brandTOChart", rows, {
+      value: function (d) { return d.toRaw; },
+      label: function (d) { return d.brand; },
+      color: function () { return "var(--accent)"; },
+      valueLabel: function (d) { return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>"; },
+      tipTitle: function (d) { return d.brand; },
+      tipRows: function (d) { return [["Turnover (T_O)", fmtDays(d.toRaw)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
+    });
+
+    var totalValue = 0, totalQty = 0, totalToRawSum = 0, totalToRawCount = 0;
+    rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; });
+    records.forEach(function (d) { if (d.turnoverDays > 0) { totalToRawSum += d.turnoverDays; totalToRawCount++; } });
+    var totalTurnover = totalToRawCount > 0 ? totalToRawSum / totalToRawCount : 0;
+
+    var headers = ["Brand", "Value (THB)", "Quantity", "Turnover"];
+    var tableRows = rows.map(function (d) {
+      return [d.brand, fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.toRaw)];
+    });
+    tableRows.push(["Total", fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]);
+    renderTable("brandTOChart", headers, tableRows);
+    brandTOExportState = { headers: headers, rows: tableRows };
+  }
+
+  function brandTOExportCsv() {
+    if (!brandTOExportState) return;
+    downloadCsv(brandTOExportState.headers, brandTOExportState.rows, "vendor_turnover_by_brand.csv");
   }
 
   var mcExportState = null;
@@ -782,22 +820,27 @@
   function updateAll() {
     var agingRecords = activeAgingData();
     var stockRecords = activeStockData();
+    var turnoverByBranchRecords = activeTurnoverByBranchData();
+    var turnoverBrandRecords = activeTurnoverBrandData();
     var hasAging = agingRecords.length > 0;
     var hasStock = stockRecords.length > 0;
+    var hasTurnoverByBranch = turnoverByBranchRecords.length > 0;
+    var hasTurnoverBrand = turnoverBrandRecords.length > 0;
 
-    if (!hasAging && !hasStock) {
+    if (!hasAging && !hasStock && !hasTurnoverByBranch && !hasTurnoverBrand) {
       document.getElementById("dashboard").style.display = "none";
       document.getElementById("emptyState").style.display = "block";
       document.getElementById("emptyState").textContent =
-        'No data available. Add worksheets named "' + AGING_SHEET_NAME + '" and "' + STOCK_SHEET_NAME + '" to this dashboard.';
+        'No data available. Add worksheets named "' + AGING_SHEET_NAME + '", "' + TURNOVER_BY_BRANCH_SHEET_NAME +
+        '", "' + TURNOVER_BRAND_SHEET_NAME + '" and/or "' + STOCK_SHEET_NAME + '" to this dashboard.';
       return;
     }
     document.getElementById("emptyState").style.display = "none";
     document.getElementById("dashboard").style.display = "block";
 
-    // "Exclude DC" applies to both sheets at once, so its visibility is
-    // decided from the raw (unfiltered) data across both.
-    var hasDcFlag = S.agingData.concat(S.stockData).some(function (d) { return d.isDC; });
+    // "Exclude DC" applies across every sheet at once, so its visibility is
+    // decided from the raw (unfiltered) data across all of them.
+    var hasDcFlag = S.agingData.concat(S.stockData, S.turnoverByBranchData, S.turnoverBrandData).some(function (d) { return d.isDC; });
     document.getElementById("excludeDcBtn").style.display = hasDcFlag ? "" : "none";
 
     document.getElementById("kpi").style.display = hasAging ? "" : "none";
@@ -817,13 +860,13 @@
       drawClassAgingChart(agingRecords);
     }
 
-    document.getElementById("branch").style.display = hasStock ? "" : "none";
-    document.getElementById("turnover").style.display = hasStock ? "" : "none";
-    if (hasStock) {
-      drawBranches(stockRecords);
-      drawVendorBranchTO(stockRecords);
-      renderMcTable(stockRecords);
-    }
+    document.getElementById("branch").style.display = hasTurnoverByBranch ? "" : "none";
+    if (hasTurnoverByBranch) drawBranches(turnoverByBranchRecords);
+
+    document.getElementById("turnover").style.display = (hasTurnoverByBranch || hasTurnoverBrand || hasStock) ? "" : "none";
+    if (hasTurnoverByBranch) drawVendorBranchTO(turnoverByBranchRecords);
+    if (hasTurnoverBrand) drawTurnoverByBrand(turnoverBrandRecords);
+    if (hasStock) renderMcTable(stockRecords);
   }
 
   // ─── Tableau: data loading ────────────────────────────────
@@ -977,17 +1020,26 @@
 
     var agingWs = findWorksheetByName(AGING_SHEET_NAME);
     var stockWs = findWorksheetByName(STOCK_SHEET_NAME);
+    var turnoverByBranchWs = findWorksheetByName(TURNOVER_BY_BRANCH_SHEET_NAME);
+    var turnoverBrandWs = findWorksheetByName(TURNOVER_BRAND_SHEET_NAME);
     var agingDiag = {}, stockDiag = {};
 
-    Promise.all([readWorksheetRecords(agingWs, agingDiag), readWorksheetRecords(stockWs, stockDiag)]).then(function (results) {
+    Promise.all([
+      readWorksheetRecords(agingWs, agingDiag),
+      readWorksheetRecords(stockWs, stockDiag),
+      readWorksheetRecords(turnoverByBranchWs),
+      readWorksheetRecords(turnoverBrandWs)
+    ]).then(function (results) {
       var agingRecords = results[0];
       S.stockData = results[1];
+      S.turnoverByBranchData = results[2];
+      S.turnoverBrandData = results[3];
 
       function finish() {
         S.agingData = agingRecords;
         renderDiagInfo(agingDiag, stockDiag);
 
-        var titleSource = S.agingData[0] || S.stockData[0];
+        var titleSource = S.agingData[0] || S.stockData[0] || S.turnoverByBranchData[0];
         if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
         document.getElementById("metaSnapshot").textContent =
           formatSnapshotDate(titleSource && titleSource.populationDate) || new Date().toISOString().slice(0, 10);
@@ -995,6 +1047,8 @@
         var missing = [];
         if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
         if (!stockWs) missing.push('"' + STOCK_SHEET_NAME + '"');
+        if (!turnoverByBranchWs) missing.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
+        if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
 
         // Found the worksheet, but it produced zero usable rows — different
         // problem than "not found", and silent otherwise, so call it out
@@ -1002,12 +1056,15 @@
         var empty = [];
         if (agingWs && S.agingData.length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
         if (stockWs && S.stockData.length === 0) empty.push('"' + STOCK_SHEET_NAME + '"');
+        if (turnoverByBranchWs && S.turnoverByBranchData.length === 0) empty.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
+        if (turnoverBrandWs && S.turnoverBrandData.length === 0) empty.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
 
         hideLoading();
         if (missing.length) {
           showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
             ". Add a worksheet object named exactly that (case-insensitive) — " +
-            '"' + AGING_SHEET_NAME + '" feeds section 01, "' + STOCK_SHEET_NAME + '" feeds sections 02-03.');
+            '"' + AGING_SHEET_NAME + '" feeds section 01, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
+            '" feed section 02-03, "' + STOCK_SHEET_NAME + '" feeds the Turnover-by-MC table.');
         } else if (empty.length) {
           showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
             ". Every row needs UR_AMT or UR_QTY to be non-zero — check that those fields are actually " +
@@ -1082,36 +1139,21 @@
       this.setAttribute("aria-pressed", "true"); this.classList.add("active");
       var qtyBtn = document.getElementById("metricQtyBtn");
       qtyBtn.setAttribute("aria-pressed", "false"); qtyBtn.classList.remove("active");
-      drawBranches(activeStockData());
+      drawBranches(activeTurnoverByBranchData());
     });
     document.getElementById("metricQtyBtn").addEventListener("click", function () {
       S.branchMetric = "qty";
       this.setAttribute("aria-pressed", "true"); this.classList.add("active");
       var amtBtn = document.getElementById("metricAmtBtn");
       amtBtn.setAttribute("aria-pressed", "false"); amtBtn.classList.remove("active");
-      drawBranches(activeStockData());
+      drawBranches(activeTurnoverByBranchData());
     });
 
     document.getElementById("fullExportBtn").addEventListener("click", exportFullReport);
     document.getElementById("branchChartExportBtn").addEventListener("click", branchChartExportCsv);
     document.getElementById("vBranchTOExportBtn").addEventListener("click", vBranchTOExportCsv);
+    document.getElementById("brandTOExportBtn").addEventListener("click", brandTOExportCsv);
     document.getElementById("mchExportBtn").addEventListener("click", mchExportCsv);
-
-    [["vBranchDimBranch", "branch"], ["vBranchDimMch3", "mch3"], ["vBranchDimBrand", "brand"]].forEach(function (pair) {
-      document.getElementById(pair[0]).addEventListener("click", function () {
-        var dim = pair[1];
-        var idx = S.vBranchActiveDims.indexOf(dim);
-        if (idx !== -1) {
-          if (S.vBranchActiveDims.length === 1) return;
-          S.vBranchActiveDims.splice(idx, 1);
-          this.setAttribute("aria-pressed", "false");
-        } else {
-          S.vBranchActiveDims.push(dim);
-          this.setAttribute("aria-pressed", "true");
-        }
-        drawVendorBranchTO(activeStockData());
-      });
-    });
 
     MC_DIM_ORDER.forEach(function (dim) {
       var btnId = "mcDim" + dim.charAt(0).toUpperCase() + dim.slice(1);
