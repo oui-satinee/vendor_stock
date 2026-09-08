@@ -618,10 +618,25 @@
     });
     tableRows.push(dims.map(function (d, i) { return i === 0 ? "Total" : ""; }).concat([fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnoverRaw)]));
 
+    // On-screen only: the Turnover column also gets an inline mini bar
+    // scaled against the largest turnover in this table, so slow-moving
+    // groups stand out at a glance. CSV/XLS export keeps the plain
+    // fmtDays() text from tableRows above — never this markup.
+    var maxTurnover = Math.max.apply(null, rows.map(function (d) { return d.toRaw; }).concat([totalTurnoverRaw])) || 1;
+    function turnoverBarCell(days) {
+      var pct = days > 0 ? Math.min(Math.max((days / maxTurnover) * 100, 2), 100) : 0;
+      return '<div class="turnover-cell"><div class="mini-track"><div class="mini-fill" style="width:' + pct + '%"></div></div>' +
+        '<span class="mini-value">' + fmtDays(days) + "</span></div>";
+    }
+    var htmlRows = rows.map(function (d) {
+      return dims.map(function (k) { return d[k]; }).concat([fmtTHBFull(d.value), fmtInt(d.qty), turnoverBarCell(d.toRaw)]);
+    });
+    htmlRows.push(dims.map(function (d, i) { return i === 0 ? "Total" : ""; }).concat([fmtTHBFull(totalValue), fmtInt(totalQty), turnoverBarCell(totalTurnoverRaw)]));
+
     var html = '<table class="data-table"><thead><tr>';
     headers.forEach(function (h) { html += "<th>" + h + "</th>"; });
     html += "</tr></thead><tbody>";
-    tableRows.forEach(function (r) { html += "<tr>"; r.forEach(function (c) { html += "<td>" + c + "</td>"; }); html += "</tr>"; });
+    htmlRows.forEach(function (r) { html += "<tr>"; r.forEach(function (c) { html += "<td>" + c + "</td>"; }); html += "</tr>"; });
     html += "</tbody></table>";
     document.getElementById("mchFlatTableWrap").innerHTML = html;
     mcExportState = { headers: headers, rows: tableRows };
