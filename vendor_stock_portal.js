@@ -629,8 +629,8 @@
     // text isn't ellipsized, same widths the old dims-toggle chart used
     // for a 3-dim combo.
     var chartContainer = document.getElementById("brandTOChart");
-    chartContainer.style.setProperty("--label-w", "350px");
-    chartContainer.style.setProperty("--label-w-mobile", "220px");
+    chartContainer.style.setProperty("--label-w", "260px");
+    chartContainer.style.setProperty("--label-w-mobile", "170px");
 
     function labelOf(d) { return dims.map(function (k) { return d[k]; }).join(" · "); }
 
