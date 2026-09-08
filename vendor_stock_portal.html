@@ -207,8 +207,7 @@
       </div>
     </div>
     <div class="report-header-right">
-      <button class="header-btn" id="excludeDcBtn" style="display:none" aria-pressed="false">ไม่รวม DC</button>
-      <button class="header-icon-btn" id="fullExportBtn" aria-label="Export" title="Export full detail (.xls, multi-sheet) — reads &quot;aging_detail&quot;/&quot;stock_detail&quot; worksheets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+      <button class="header-icon-btn" id="fullExportBtn" aria-label="Export" title="Export full detail (.xls, multi-sheet) — reads &quot;aging_detail&quot;/&quot;stock_branch&quot; worksheets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
       <div class="report-meta-field">
         <span class="report-meta-label">Snapshot date</span>
         <span class="report-meta-value tabular" id="metaSnapshot">–</span>
@@ -283,6 +282,7 @@
             <button class="btn-metric active" id="metricAmtBtn" aria-pressed="true">UR_AMT</button>
             <button class="btn-metric" id="metricQtyBtn" aria-pressed="false">UR_QTY</button>
           </div>
+          <button class="btn" id="branchExcludeDcBtn" style="display:none" aria-pressed="false">ไม่รวม DC</button>
           <button class="btn" data-toggle-table="branchChart">View table</button>
           <button class="btn btn-icon" id="branchChartExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
         </div>
@@ -301,6 +301,7 @@
         <div class="chart-head">
           <div><div class="chart-title">Turnover ตาม สาขา</div></div>
           <div class="chart-controls">
+            <button class="btn" id="vBranchTOExcludeDcBtn" style="display:none" aria-pressed="false">ไม่รวม DC</button>
             <button class="btn" data-toggle-table="vBranchTOChart">View table</button>
             <button class="btn btn-icon" id="vBranchTOExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
           </div>
@@ -324,17 +325,9 @@
 
     <div class="chart-card full" style="margin-top:16px">
       <div class="chart-head">
-        <div><div class="chart-title" id="mcTOTitle">Turnover ตาม MCH3</div></div>
+        <div><div class="chart-title">Turnover ตาม MC (Top10)</div></div>
         <div class="chart-controls">
-          <div role="group" aria-label="Toggle breakdown columns" style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn" id="mcDimMch3" aria-pressed="true">MCH3</button>
-            <button class="btn" id="mcDimMch2" aria-pressed="false">MCH2</button>
-            <button class="btn" id="mcDimMch1" aria-pressed="false">MCH1</button>
-            <button class="btn" id="mcDimMc" aria-pressed="false">MC</button>
-            <button class="btn" id="mcDimBrand" aria-pressed="false">Brand</button>
-            <button class="btn" id="mcDimClassStock" aria-pressed="false">CLASS_STOCK</button>
-          </div>
-          <button class="btn btn-icon" id="mchExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
+          <button class="btn btn-icon" id="mcTop10ExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
         </div>
       </div>
       <div class="table-wrap" id="mchFlatTableWrap"></div>

@@ -233,41 +233,41 @@
   // are full SKU-level data, read only when the header Export button is
   // clicked, and used solely to build the downloaded .xls.
   var AGING_SHEET_NAME = "aging";
-  var STOCK_SHEET_NAME = "stock";
   var AGING_DETAIL_SHEET_NAME = "aging_detail";
   var TURNOVER_BY_BRANCH_SHEET_NAME = "turnover_by_branch";
   var TURNOVER_BRAND_SHEET_NAME = "turnover_brand";
   var TURNOVER_SHEET_NAME = "turnover";
+  var TURNOVER_MC_SHEET_NAME = "turnover_mc";
   var STOCK_BRANCH_SHEET_NAME = "stock_branch";
 
   var S = {
     agingData: [],
-    stockData: [],
     turnoverByBranchData: [],
     turnoverBrandData: [],
     turnoverData: [],
-    excludeDC: false,
+    turnoverMcData: [],
     branchMetric: "amt",
-    mcActiveDims: ["mch3"]
+    // Exclude-DC used to be one global header toggle; now it's two
+    // independent per-box toggles over the same turnover_by_branch data.
+    branchExcludeDC: false,
+    vBranchTOExcludeDC: false
   };
   var unregisterFns = [];
-  var MC_DIM_ORDER = ["mch3", "mch2", "mch1", "mc", "brand", "classStock"];
-  var MC_DIM_LABELS = { mch3: "MCH3", mch2: "MCH2", mch1: "MCH1", mc: "MC", brand: "Brand", classStock: "CLASS_STOCK" };
 
   function activeAgingData() {
-    return S.excludeDC ? S.agingData.filter(function (d) { return !d.isDC; }) : S.agingData;
+    return S.agingData;
   }
-  function activeStockData() {
-    return S.excludeDC ? S.stockData.filter(function (d) { return !d.isDC; }) : S.stockData;
+  function activeTurnoverByBranchDataForValue() {
+    return S.branchExcludeDC ? S.turnoverByBranchData.filter(function (d) { return !d.isDC; }) : S.turnoverByBranchData;
   }
-  function activeTurnoverByBranchData() {
-    return S.excludeDC ? S.turnoverByBranchData.filter(function (d) { return !d.isDC; }) : S.turnoverByBranchData;
+  function activeTurnoverByBranchDataForTurnover() {
+    return S.vBranchTOExcludeDC ? S.turnoverByBranchData.filter(function (d) { return !d.isDC; }) : S.turnoverByBranchData;
   }
   function activeTurnoverBrandData() {
-    return S.excludeDC ? S.turnoverBrandData.filter(function (d) { return !d.isDC; }) : S.turnoverBrandData;
+    return S.turnoverBrandData;
   }
   function activeTurnoverData() {
-    return S.excludeDC ? S.turnoverData.filter(function (d) { return !d.isDC; }) : S.turnoverData;
+    return S.turnoverData;
   }
 
   // ─── Formatting ───────────────────────────────────────────
@@ -646,17 +646,18 @@
     downloadCsv(brandTOExportState.headers, brandTOExportState.rows, "vendor_turnover_by_brand.csv");
   }
 
-  var mcExportState = null;
+  var mcTop10ExportState = null;
 
-  function renderMcTable(records) {
-    var dims = MC_DIM_ORDER.filter(function (d) { return S.mcActiveDims.indexOf(d) !== -1; });
-    var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.value - a.value; });
+  // Fixed columns (no dims toggle), sourced from a dedicated "turnover_mc"
+  // sheet with its own T_O — top 10 rows by that T_O, descending.
+  function drawTurnoverMcTop10(records) {
+    var rows = aggregateByDims(records, ["mch3", "mch2", "mch1", "mc"])
+      .sort(function (a, b) { return b.toRaw - a.toRaw; })
+      .slice(0, 10);
 
-    document.getElementById("mcTOTitle").textContent = "Turnover ตาม " + dims.map(function (d) { return MC_DIM_LABELS[d]; }).join(" และ ");
-
-    var headers = dims.map(function (d) { return MC_DIM_LABELS[d]; }).concat(["Turnover", "UR_AMT", "Quantity"]);
+    var headers = ["MCH3", "MCH2", "MCH1", "MC", "UR_QTY", "UR_AMT", "TURNOVER"];
     var tableRows = rows.map(function (d) {
-      return dims.map(function (k) { return d[k]; }).concat([fmtDays(d.toFormula), fmtTHBFull(d.value), fmtInt(d.qty)]);
+      return [d.mch3, d.mch2, d.mch1, d.mc, fmtInt(d.qty), fmtTHBFull(d.value), fmtDays(d.toRaw)];
     });
 
     var html = '<table class="data-table"><thead><tr>';
@@ -665,7 +666,7 @@
     tableRows.forEach(function (r) { html += "<tr>"; r.forEach(function (c) { html += "<td>" + c + "</td>"; }); html += "</tr>"; });
     html += "</tbody></table>";
     document.getElementById("mchFlatTableWrap").innerHTML = html;
-    mcExportState = { headers: headers, rows: tableRows };
+    mcTop10ExportState = { headers: headers, rows: tableRows };
   }
 
   // ─── CSV / XLS export ───────────────────────────────────────
@@ -689,9 +690,9 @@
     if (!vBranchTOExportState) return;
     downloadCsv(vBranchTOExportState.headers, vBranchTOExportState.rows, "vendor_branch_turnover.csv");
   }
-  function mchExportCsv() {
-    if (!mcExportState) return;
-    downloadCsv(mcExportState.headers, mcExportState.rows, "vendor_mc_breakdown.csv");
+  function mcTop10ExportCsv() {
+    if (!mcTop10ExportState) return;
+    downloadCsv(mcTop10ExportState.headers, mcTop10ExportState.rows, "vendor_turnover_by_mc_top10.csv");
   }
   function xmlEscape(v) { return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   function xlsSheetXml(name, headers, rows, numericFlags) {
@@ -721,8 +722,8 @@
     var agingDetailDiag = {};
 
     Promise.all([readWorksheetRecords(agingDetailWs, agingDetailDiag), readWorksheetRecords(stockBranchWs)]).then(function (results) {
-      var stockRecords = S.excludeDC ? results[1].filter(function (d) { return !d.isDC; }) : results[1];
-      var summaryAgingRecords = S.excludeDC ? results[0].filter(function (d) { return !d.isDC; }) : results[0];
+      var stockRecords = results[1];
+      var summaryAgingRecords = results[0];
       // "turnover"/"turnover_brand" are already loaded eagerly (they also
       // feed the on-screen boxes) — reuse rather than re-fetching.
       var turnoverRecords = activeTurnoverData();
@@ -823,8 +824,7 @@
 
       readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
         if (tierResolvedCount(underlyingRecords) > 0) {
-          var filtered = S.excludeDC ? underlyingRecords.filter(function (d) { return !d.isDC; }) : underlyingRecords;
-          finishExport(filtered, buildTierWarning(filtered, AGING_DETAIL_SHEET_NAME + " (underlying table)"));
+          finishExport(underlyingRecords, buildTierWarning(underlyingRecords, AGING_DETAIL_SHEET_NAME + " (underlying table)"));
         } else {
           finishExport(summaryAgingRecords, "AGING_TIER resolved on 0 of " + summaryAgingRecords.length +
             " exported rows, and reading the underlying table(s) directly didn't help either. Underlying tables tried: " +
@@ -840,31 +840,33 @@
   // ─── Master render ────────────────────────────────────────
   function updateAll() {
     var agingRecords = activeAgingData();
-    var stockRecords = activeStockData();
-    var turnoverByBranchRecords = activeTurnoverByBranchData();
+    var turnoverByBranchRecordsForValue = activeTurnoverByBranchDataForValue();
+    var turnoverByBranchRecordsForTurnover = activeTurnoverByBranchDataForTurnover();
     var turnoverBrandRecords = activeTurnoverBrandData();
     var turnoverRecords = activeTurnoverData();
+    var turnoverMcRecords = S.turnoverMcData;
     var hasAging = agingRecords.length > 0;
-    var hasStock = stockRecords.length > 0;
-    var hasTurnoverByBranch = turnoverByBranchRecords.length > 0;
+    var hasTurnoverByBranch = S.turnoverByBranchData.length > 0;
     var hasTurnoverBrand = turnoverBrandRecords.length > 0;
     var hasTurnover = turnoverRecords.length > 0;
+    var hasTurnoverMc = turnoverMcRecords.length > 0;
 
-    if (!hasAging && !hasStock && !hasTurnoverByBranch && !hasTurnoverBrand && !hasTurnover) {
+    if (!hasAging && !hasTurnoverByBranch && !hasTurnoverBrand && !hasTurnover && !hasTurnoverMc) {
       document.getElementById("dashboard").style.display = "none";
       document.getElementById("emptyState").style.display = "block";
       document.getElementById("emptyState").textContent =
         'No data available. Add worksheets named "' + AGING_SHEET_NAME + '", "' + TURNOVER_SHEET_NAME + '", "' + TURNOVER_BY_BRANCH_SHEET_NAME +
-        '", "' + TURNOVER_BRAND_SHEET_NAME + '" and/or "' + STOCK_SHEET_NAME + '" to this dashboard.';
+        '", "' + TURNOVER_BRAND_SHEET_NAME + '" and/or "' + TURNOVER_MC_SHEET_NAME + '" to this dashboard.';
       return;
     }
     document.getElementById("emptyState").style.display = "none";
     document.getElementById("dashboard").style.display = "block";
 
-    // "Exclude DC" applies across every sheet at once, so its visibility is
-    // decided from the raw (unfiltered) data across all of them.
-    var hasDcFlag = S.agingData.concat(S.stockData, S.turnoverByBranchData, S.turnoverBrandData, S.turnoverData).some(function (d) { return d.isDC; });
-    document.getElementById("excludeDcBtn").style.display = hasDcFlag ? "" : "none";
+    // Both per-box "Exclude DC" toggles operate on the same
+    // turnover_by_branch data, so they share one visibility check.
+    var hasDcFlag = S.turnoverByBranchData.some(function (d) { return d.isDC; });
+    document.getElementById("branchExcludeDcBtn").style.display = hasDcFlag ? "" : "none";
+    document.getElementById("vBranchTOExcludeDcBtn").style.display = hasDcFlag ? "" : "none";
 
     document.getElementById("aging").style.display = hasAging ? "" : "none";
     if (hasAging) {
@@ -886,12 +888,12 @@
     }
 
     document.getElementById("branch").style.display = hasTurnoverByBranch ? "" : "none";
-    if (hasTurnoverByBranch) drawBranches(turnoverByBranchRecords);
+    if (hasTurnoverByBranch) drawBranches(turnoverByBranchRecordsForValue);
 
-    document.getElementById("turnover").style.display = (hasTurnoverByBranch || hasTurnoverBrand || hasStock) ? "" : "none";
-    if (hasTurnoverByBranch) drawVendorBranchTO(turnoverByBranchRecords);
+    document.getElementById("turnover").style.display = (hasTurnoverByBranch || hasTurnoverBrand || hasTurnoverMc) ? "" : "none";
+    if (hasTurnoverByBranch) drawVendorBranchTO(turnoverByBranchRecordsForTurnover);
     if (hasTurnoverBrand) drawTurnoverByBrand(turnoverBrandRecords);
-    if (hasStock) renderMcTable(stockRecords);
+    if (hasTurnoverMc) drawTurnoverMcTop10(turnoverMcRecords);
   }
 
   // ─── Tableau: data loading ────────────────────────────────
@@ -1020,7 +1022,7 @@
   // container's CSS is display:none) per user request, even while a
   // fallback is active — still populated every load, so it stays
   // inspectable via dev tools if the aging-tier issue needs revisiting.
-  function renderDiagInfo(agingDiag, stockDiag) {
+  function renderDiagInfo(agingDiag) {
     function line(name, diag) {
       if (!diag.found) return name + ": worksheet not found";
       var cols = diag.colIndex ? Object.keys(diag.colIndex).sort().join(", ") : "(none)";
@@ -1036,7 +1038,7 @@
     }).join(", ");
     var el = document.getElementById("diagInfo");
     el.textContent = "all worksheets on this dashboard: " + allNames + "\n" +
-      line(AGING_SHEET_NAME, agingDiag) + "\n" + line(STOCK_SHEET_NAME, stockDiag);
+      line(AGING_SHEET_NAME, agingDiag);
   }
 
   function loadAllData() {
@@ -1044,50 +1046,50 @@
     hideError();
 
     var agingWs = findWorksheetByName(AGING_SHEET_NAME);
-    var stockWs = findWorksheetByName(STOCK_SHEET_NAME);
     var turnoverByBranchWs = findWorksheetByName(TURNOVER_BY_BRANCH_SHEET_NAME);
     var turnoverBrandWs = findWorksheetByName(TURNOVER_BRAND_SHEET_NAME);
     var turnoverWs = findWorksheetByName(TURNOVER_SHEET_NAME);
-    var agingDiag = {}, stockDiag = {};
+    var turnoverMcWs = findWorksheetByName(TURNOVER_MC_SHEET_NAME);
+    var agingDiag = {};
 
     Promise.all([
       readWorksheetRecords(agingWs, agingDiag),
-      readWorksheetRecords(stockWs, stockDiag),
       readWorksheetRecords(turnoverByBranchWs),
       readWorksheetRecords(turnoverBrandWs),
-      readWorksheetRecords(turnoverWs)
+      readWorksheetRecords(turnoverWs),
+      readWorksheetRecords(turnoverMcWs)
     ]).then(function (results) {
       var agingRecords = results[0];
-      S.stockData = results[1];
-      S.turnoverByBranchData = results[2];
-      S.turnoverBrandData = results[3];
-      S.turnoverData = results[4];
+      S.turnoverByBranchData = results[1];
+      S.turnoverBrandData = results[2];
+      S.turnoverData = results[3];
+      S.turnoverMcData = results[4];
 
       function finish() {
         S.agingData = agingRecords;
-        renderDiagInfo(agingDiag, stockDiag);
+        renderDiagInfo(agingDiag);
 
-        var titleSource = S.agingData[0] || S.turnoverData[0] || S.stockData[0] || S.turnoverByBranchData[0];
+        var titleSource = S.agingData[0] || S.turnoverData[0] || S.turnoverByBranchData[0] || S.turnoverMcData[0];
         if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
         document.getElementById("metaSnapshot").textContent =
           formatSnapshotDate(titleSource && titleSource.populationDate) || new Date().toISOString().slice(0, 10);
 
         var missing = [];
         if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
-        if (!stockWs) missing.push('"' + STOCK_SHEET_NAME + '"');
         if (!turnoverByBranchWs) missing.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
         if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
         if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
+        if (!turnoverMcWs) missing.push('"' + TURNOVER_MC_SHEET_NAME + '"');
 
         // Found the worksheet, but it produced zero usable rows — different
         // problem than "not found", and silent otherwise, so call it out
         // explicitly instead of just showing an empty section.
         var empty = [];
         if (agingWs && S.agingData.length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
-        if (stockWs && S.stockData.length === 0) empty.push('"' + STOCK_SHEET_NAME + '"');
         if (turnoverByBranchWs && S.turnoverByBranchData.length === 0) empty.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
         if (turnoverBrandWs && S.turnoverBrandData.length === 0) empty.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
         if (turnoverWs && S.turnoverData.length === 0) empty.push('"' + TURNOVER_SHEET_NAME + '"');
+        if (turnoverMcWs && S.turnoverMcData.length === 0) empty.push('"' + TURNOVER_MC_SHEET_NAME + '"');
 
         hideLoading();
         if (missing.length) {
@@ -1095,7 +1097,7 @@
             ". Add a worksheet object named exactly that (case-insensitive) — " +
             '"' + AGING_SHEET_NAME + '" feeds section 01 (only its Aging > 180 Days KPI), "' + TURNOVER_SHEET_NAME +
             '" feeds the rest of the KPI row, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
-            '" feed section 02-03, "' + STOCK_SHEET_NAME + '" feeds the Turnover-by-MC table.');
+            '" feed section 02-03, "' + TURNOVER_MC_SHEET_NAME + '" feeds the Turnover-by-MC (Top10) table.');
         } else if (empty.length) {
           showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
             ". Every row needs UR_AMT or UR_QTY to be non-zero — check that those fields are actually " +
@@ -1159,10 +1161,15 @@
   function attachEvents() {
     document.getElementById("errorCloseBtn").addEventListener("click", hideError);
 
-    document.getElementById("excludeDcBtn").addEventListener("click", function () {
-      S.excludeDC = !S.excludeDC;
-      this.setAttribute("aria-pressed", String(S.excludeDC));
-      updateAll();
+    document.getElementById("branchExcludeDcBtn").addEventListener("click", function () {
+      S.branchExcludeDC = !S.branchExcludeDC;
+      this.setAttribute("aria-pressed", String(S.branchExcludeDC));
+      drawBranches(activeTurnoverByBranchDataForValue());
+    });
+    document.getElementById("vBranchTOExcludeDcBtn").addEventListener("click", function () {
+      S.vBranchTOExcludeDC = !S.vBranchTOExcludeDC;
+      this.setAttribute("aria-pressed", String(S.vBranchTOExcludeDC));
+      drawVendorBranchTO(activeTurnoverByBranchDataForTurnover());
     });
 
     document.getElementById("metricAmtBtn").addEventListener("click", function () {
@@ -1170,39 +1177,21 @@
       this.setAttribute("aria-pressed", "true"); this.classList.add("active");
       var qtyBtn = document.getElementById("metricQtyBtn");
       qtyBtn.setAttribute("aria-pressed", "false"); qtyBtn.classList.remove("active");
-      drawBranches(activeTurnoverByBranchData());
+      drawBranches(activeTurnoverByBranchDataForValue());
     });
     document.getElementById("metricQtyBtn").addEventListener("click", function () {
       S.branchMetric = "qty";
       this.setAttribute("aria-pressed", "true"); this.classList.add("active");
       var amtBtn = document.getElementById("metricAmtBtn");
       amtBtn.setAttribute("aria-pressed", "false"); amtBtn.classList.remove("active");
-      drawBranches(activeTurnoverByBranchData());
+      drawBranches(activeTurnoverByBranchDataForValue());
     });
 
     document.getElementById("fullExportBtn").addEventListener("click", exportFullReport);
     document.getElementById("branchChartExportBtn").addEventListener("click", branchChartExportCsv);
     document.getElementById("vBranchTOExportBtn").addEventListener("click", vBranchTOExportCsv);
     document.getElementById("brandTOExportBtn").addEventListener("click", brandTOExportCsv);
-    document.getElementById("mchExportBtn").addEventListener("click", mchExportCsv);
-
-    MC_DIM_ORDER.forEach(function (dim) {
-      var btnId = "mcDim" + dim.charAt(0).toUpperCase() + dim.slice(1);
-      var el = document.getElementById(btnId);
-      if (!el) return;
-      el.addEventListener("click", function () {
-        var idx = S.mcActiveDims.indexOf(dim);
-        if (idx !== -1) {
-          if (S.mcActiveDims.length === 1) return;
-          S.mcActiveDims.splice(idx, 1);
-          this.setAttribute("aria-pressed", "false");
-        } else {
-          S.mcActiveDims.push(dim);
-          this.setAttribute("aria-pressed", "true");
-        }
-        renderMcTable(activeStockData());
-      });
-    });
+    document.getElementById("mcTop10ExportBtn").addEventListener("click", mcTop10ExportCsv);
   }
 
   // ─── Tableau bootstrap ────────────────────────────────────
