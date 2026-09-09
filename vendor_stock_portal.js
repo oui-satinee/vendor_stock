@@ -604,10 +604,14 @@
       listEl.appendChild(row);
     });
 
+    var totalValue = 0, totalQty = 0, totalSku = 0;
+    sortedRows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; totalSku += d.sku; });
+
     var headers = ["Branch", "Value (UR_AMT)", "Quantity (UR_QTY)", "% of total shown", "SKUs"];
     var tableRows = sortedRows.map(function (d) {
       return [d.branch + (d.isDC ? " (DC)" : ""), fmtTHBFull(d.value), fmtInt(d.qty), pct1(100 * metricOf(d) / total), fmtInt(d.sku)];
     });
+    tableRows.push(["Total", fmtTHBFull(totalValue), fmtInt(totalQty), pct1(100), fmtInt(totalSku)]);
     renderTable("branchChart", headers, tableRows);
     branchChartExportState = { headers: headers, rows: tableRows };
   }
