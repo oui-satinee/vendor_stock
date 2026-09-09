@@ -146,7 +146,8 @@
      "Turnover ตาม สาขา" card's natural height — its own bar list scrolls
      internally instead of growing the card past that height. */
   #vBranchTOCard, #brandTOCard{ display:flex; flex-direction:column; }
-  #brandTOChart, #brandTOChart-table{ flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  #brandTOChart, #brandTOChart-table{ flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 10px; }
+  #brandTOChart{ overflow-x: hidden; }
   .chart-head{ display:flex; justify-content: space-between; align-items:flex-start; gap: 12px; flex-wrap: wrap; }
   .chart-title{ font-size: 15.5px; font-weight: 600; }
   .chart-caption{ font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
@@ -296,7 +297,7 @@
       </div>
       <div class="kpi-tile">
         <div class="kpi-tile-head"><div class="kpi-label">SKU Count</div><div class="kpi-icon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></div></div>
-        <div class="kpi-value num tabular" id="kpiSku">–</div><div class="kpi-sub">distinct ARTICLE_ID</div>
+        <div class="kpi-value num tabular" id="kpiSku">–</div><div class="kpi-sub">distinct article</div>
       </div>
       <div class="kpi-tile">
         <div class="kpi-tile-head"><div class="kpi-label">Dead Stock Value</div><div class="kpi-icon critical"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div></div>
@@ -392,7 +393,7 @@
 
     <div class="chart-card full" style="margin-top:16px">
       <div class="chart-head">
-        <div><div class="chart-title">Turnover ตาม MC (Top 10)</div><div class="chart-caption">10 อันดับ Material Class (MC) เรียงตามระยะเวลาหมุนเวียนคงคลัง</div></div>
+        <div><div class="chart-title">Turnover ตาม MC (Top 10)</div><div class="chart-caption">10 อันดับ MC เรียงตาม Turnover</div></div>
         <div class="chart-controls">
           <button class="btn btn-icon" id="mcTop10ExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
         </div>

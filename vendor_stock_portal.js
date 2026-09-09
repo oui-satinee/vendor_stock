@@ -52,7 +52,7 @@
 
   // Turnover-speed status coloring for section 02's per-branch badge —
   // <=180d normal, <=250d moderate, >250d high-risk. Section 03's two
-  // turnover bar charts do NOT use this (see seqBlueByRank below); this
+  // turnover bar charts do NOT use this (see seqBlueByValue below); this
   // bucketing only still backs the standalone pill badge in the branch list.
   var TURNOVER_BADGE_CLASS = ["good", "warning", "critical"];
   function turnoverBucket(days) {
@@ -63,25 +63,27 @@
   }
 
   // Sequential blue ramp (dark -> light) for section 03's "Turnover ตาม
-  // สาขา" and "Turnover ตาม Brand" bar lists — encodes RANK within the
-  // currently displayed (sorted, possibly filtered) list, not a status
-  // threshold: the slowest-turnover row is darkest, fading to the lightest
-  // step for the fastest. Deliberately no amber/red in these two boxes.
+  // สาขา" and "Turnover ตาม Brand" bar lists — keyed by the actual Turnover
+  // (days) VALUE relative to the currently displayed (possibly filtered)
+  // list's own min/max, not just sorted rank: the highest day-count is
+  // darkest, fading to the lightest step for the lowest, and rows with
+  // close values get visibly close shades instead of one rank-step apart
+  // regardless of how far apart their values actually are. Deliberately no
+  // amber/red in these two boxes.
   var SEQ_COLORS_DARK_TO_LIGHT = ["var(--seq-8)", "var(--seq-7)", "var(--seq-6)", "var(--seq-5)", "var(--seq-4)", "var(--seq-3)", "var(--seq-2)", "var(--seq-1)"];
-  function seqBlueByRank(index, total) {
-    if (total <= 1) return SEQ_COLORS_DARK_TO_LIGHT[0];
-    var step = index / (total - 1);
-    return SEQ_COLORS_DARK_TO_LIGHT[Math.round(step * (SEQ_COLORS_DARK_TO_LIGHT.length - 1))];
+  function seqBlueByValue(value, min, max) {
+    if (max <= min) return SEQ_COLORS_DARK_TO_LIGHT[0];
+    var t = (value - min) / (max - min);
+    return SEQ_COLORS_DARK_TO_LIGHT[Math.round((1 - t) * (SEQ_COLORS_DARK_TO_LIGHT.length - 1))];
   }
 
   // "Turnover ตาม MC (Top 10)" operates on a much larger day-count scale
   // (slow-moving long-tail SKUs, often thousands of days) and its own
-  // thresholds — unrelated to the two functions above. Below 500 days it's
-  // a neutral/plain pill, not a "good" green one.
+  // threshold — unrelated to the two functions above. Two colors only, no
+  // amber tier: >1000 days is critical (red), everything else is a
+  // neutral/plain pill, not a "good" green one.
   function mcTurnoverBadgeClass(days) {
-    if (days > 1000) return "critical";
-    if (days > 500) return "warning";
-    return "neutral";
+    return days > 1000 ? "critical" : "neutral";
   }
 
   function bucketAging(days) {
@@ -674,11 +676,13 @@
   // "turnover_by_branch" sheet — no dims toggle, no re-derivation.
   function drawVendorBranchTO(records) {
     var rows = aggregateByDims(records, ["branch"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
+    var minToRaw = Math.min.apply(null, rows.map(function (d) { return d.toRaw; }));
+    var maxToRaw = Math.max.apply(null, rows.map(function (d) { return d.toRaw; }));
 
     renderBars("vBranchTOChart", rows, {
       value: function (d) { return d.toRaw; },
       label: function (d) { return d.branch; },
-      color: function (d) { return seqBlueByRank(rows.indexOf(d), rows.length); },
+      color: function (d) { return seqBlueByValue(d.toRaw, minToRaw, maxToRaw); },
       valueLabel: function (d) {
         return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>";
       },
@@ -732,6 +736,8 @@
 
     var filtered = S.brandTOFilter === "ALL" ? records : records.filter(function (d) { return d.brand === S.brandTOFilter; });
     var rows = aggregateByDims(filtered, dims).sort(function (a, b) { return b.toRaw - a.toRaw; });
+    var minToRaw = Math.min.apply(null, rows.map(function (d) { return d.toRaw; }));
+    var maxToRaw = Math.max.apply(null, rows.map(function (d) { return d.toRaw; }));
 
     function labelOf(d) { return dims.map(function (k) { return d[k]; }).join(" · "); }
 
@@ -746,7 +752,7 @@
     renderBars("brandTOChart", rows, {
       value: function (d) { return d.toRaw; },
       label: labelOf,
-      color: function (d) { return seqBlueByRank(rows.indexOf(d), rows.length); },
+      color: function (d) { return seqBlueByValue(d.toRaw, minToRaw, maxToRaw); },
       valueLabel: function (d) {
         return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>";
       },
@@ -783,18 +789,18 @@
       .sort(function (a, b) { return b.toRaw - a.toRaw; })
       .slice(0, 10);
 
-    var headers = ["MCH3", "MCH2", "MCH1", "MC", "UR_QTY", "UR_AMT", "TURNOVER"];
+    var headers = ["MCH3", "MCH2", "MCH1", "MC", "TURNOVER", "UR_AMT", "UR_QTY"];
     var tableRows = rows.map(function (d) {
-      return [d.mch3, d.mch2, d.mch1, d.mc, fmtInt(d.qty), fmtTHBFull(d.value), fmtDays(d.toRaw)];
+      return [d.mch3, d.mch2, d.mch1, d.mc, fmtDays(d.toRaw), fmtTHBFull(d.value), fmtInt(d.qty)];
     });
 
     var html = '<table class="data-table"><thead><tr>';
     headers.forEach(function (h) { html += "<th>" + h + "</th>"; });
     html += "</tr></thead><tbody>";
     rows.forEach(function (d) {
-      html += "<tr><td>" + d.mch3 + "</td><td>" + d.mch2 + "</td><td>" + d.mch1 + "</td><td>" + d.mc + "</td><td>" +
-        fmtInt(d.qty) + "</td><td>" + fmtTHBFull(d.value) + '</td><td><span class="turnover-badge ' +
-        mcTurnoverBadgeClass(d.toRaw) + '">' + fmtDays(d.toRaw) + "</span></td></tr>";
+      html += "<tr><td>" + d.mch3 + "</td><td>" + d.mch2 + "</td><td>" + d.mch1 + "</td><td>" + d.mc + '</td><td><span class="turnover-badge ' +
+        mcTurnoverBadgeClass(d.toRaw) + '">' + fmtDays(d.toRaw) + "</span></td><td>" +
+        fmtTHBFull(d.value) + "</td><td>" + fmtInt(d.qty) + "</td></tr>";
     });
     html += "</tbody></table>";
     document.getElementById("mchFlatTableWrap").innerHTML = html;
