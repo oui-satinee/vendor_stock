@@ -654,6 +654,22 @@
 
   var vBranchTOExportState = null;
 
+  // "Turnover ตาม Brand" is pinned to whatever height "Turnover ตาม สาขา"
+  // naturally renders at, so the two cards always line up — its own list
+  // (#brandTOChart, "flex:1; overflow-y:auto" in CSS) scrolls internally
+  // instead of growing the card past that height. Reading offsetHeight
+  // forces the browser to flush layout first, so this always reflects the
+  // just-rendered DOM, not a stale value. Called from the end of both
+  // draw functions below, since either one redrawing alone (the per-box
+  // "ไม่รวม DC" toggle, a brand tab click) can change which height applies.
+  function syncTurnoverCardHeights() {
+    var branchCard = document.getElementById("vBranchTOCard");
+    var brandCard = document.getElementById("brandTOCard");
+    var branchList = document.getElementById("vBranchTOChart");
+    if (!branchCard || !brandCard || !branchList) return;
+    brandCard.style.height = branchList.children.length > 0 ? branchCard.offsetHeight + "px" : "";
+  }
+
   // Fixed to one row per branch, reading T_O as-is from a dedicated
   // "turnover_by_branch" sheet — no dims toggle, no re-derivation.
   function drawVendorBranchTO(records) {
@@ -682,6 +698,7 @@
     tableRows.push(["Total", fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]);
     renderTable("vBranchTOChart", headers, tableRows);
     vBranchTOExportState = { headers: headers, rows: tableRows };
+    syncTurnoverCardHeights();
   }
 
   var brandTOExportState = null;
@@ -749,6 +766,7 @@
     tableRows.push(["Total", "", "", fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]);
     renderTable("brandTOChart", headers, tableRows);
     brandTOExportState = { headers: headers, rows: tableRows };
+    syncTurnoverCardHeights();
   }
 
   function brandTOExportCsv() {

@@ -141,6 +141,12 @@
   @media (max-width: 860px){ .chart-grid{ grid-template-columns: 1fr; } }
   .chart-card{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); }
   .chart-card.full{ grid-column: 1 / -1; }
+
+  /* "Turnover ตาม Brand" is JS-pinned (inline height) to match its sibling
+     "Turnover ตาม สาขา" card's natural height — its own bar list scrolls
+     internally instead of growing the card past that height. */
+  #vBranchTOCard, #brandTOCard{ display:flex; flex-direction:column; }
+  #brandTOChart, #brandTOChart-table{ flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   .chart-head{ display:flex; justify-content: space-between; align-items:flex-start; gap: 12px; flex-wrap: wrap; }
   .chart-title{ font-size: 15.5px; font-weight: 600; }
   .chart-caption{ font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }
@@ -355,7 +361,7 @@
       <p class="section-kicker">03 — Stock Turnover</p>
     </div>
     <div class="chart-grid">
-      <div class="chart-card">
+      <div class="chart-card" id="vBranchTOCard">
         <div class="chart-head">
           <div><div class="chart-title">Turnover ตาม สาขา</div></div>
           <div class="chart-controls">
@@ -368,7 +374,7 @@
         <div class="table-wrap table-view" id="vBranchTOChart-table" hidden></div>
       </div>
 
-      <div class="chart-card">
+      <div class="chart-card" id="brandTOCard">
         <div class="chart-head">
           <div><div class="chart-title">Turnover ตาม Brand</div></div>
           <div class="chart-controls">
