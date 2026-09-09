@@ -47,9 +47,42 @@
   var TIER_LABELS_SHORT = ["<90d", "<180d", ">180d"];
   var TIER_COLORS = ["var(--status-good)", "var(--status-warning)", "var(--status-critical)"];
   var TIER_BOUNDS = [60, 90, 120, 150, 180, 270, 360, Infinity];
-  var seqColors = ["var(--seq-1)", "var(--seq-2)", "var(--seq-3)", "var(--seq-4)", "var(--seq-5)", "var(--seq-6)", "var(--seq-7)", "var(--seq-8)"];
 
   function tierBucket(tierIdx) { return tierIdx <= 1 ? 0 : (tierIdx <= 4 ? 1 : 2); }
+
+  // Turnover-speed status coloring for section 02's per-branch badge —
+  // <=180d normal, <=250d moderate, >250d high-risk. Section 03's two
+  // turnover bar charts do NOT use this (see seqBlueByRank below); this
+  // bucketing only still backs the standalone pill badge in the branch list.
+  var TURNOVER_BADGE_CLASS = ["good", "warning", "critical"];
+  function turnoverBucket(days) {
+    if (!days || days <= 0) return 0;
+    if (days <= 180) return 0;
+    if (days <= 250) return 1;
+    return 2;
+  }
+
+  // Sequential blue ramp (dark -> light) for section 03's "Turnover ตาม
+  // สาขา" and "Turnover ตาม Brand" bar lists — encodes RANK within the
+  // currently displayed (sorted, possibly filtered) list, not a status
+  // threshold: the slowest-turnover row is darkest, fading to the lightest
+  // step for the fastest. Deliberately no amber/red in these two boxes.
+  var SEQ_COLORS_DARK_TO_LIGHT = ["var(--seq-8)", "var(--seq-7)", "var(--seq-6)", "var(--seq-5)", "var(--seq-4)", "var(--seq-3)", "var(--seq-2)", "var(--seq-1)"];
+  function seqBlueByRank(index, total) {
+    if (total <= 1) return SEQ_COLORS_DARK_TO_LIGHT[0];
+    var step = index / (total - 1);
+    return SEQ_COLORS_DARK_TO_LIGHT[Math.round(step * (SEQ_COLORS_DARK_TO_LIGHT.length - 1))];
+  }
+
+  // "Turnover ตาม MC (Top 10)" operates on a much larger day-count scale
+  // (slow-moving long-tail SKUs, often thousands of days) and its own
+  // thresholds — unrelated to the two functions above. Below 500 days it's
+  // a neutral/plain pill, not a "good" green one.
+  function mcTurnoverBadgeClass(days) {
+    if (days > 1000) return "critical";
+    if (days > 500) return "warning";
+    return "neutral";
+  }
 
   function bucketAging(days) {
     for (var i = 0; i < TIER_BOUNDS.length; i++) {
@@ -251,7 +284,8 @@
     // Exclude-DC used to be one global header toggle; now it's two
     // independent per-box toggles over the same turnover_by_branch data.
     branchExcludeDC: false,
-    vBranchTOExcludeDC: false
+    vBranchTOExcludeDC: false,
+    brandTOFilter: "ALL"
   };
   var unregisterFns = [];
 
@@ -367,10 +401,6 @@
     chartEl.style.display = showingTable ? "" : "none";
     btn.textContent = showingTable ? "View table" : "View chart";
     btn.setAttribute("aria-pressed", String(!showingTable));
-    if (id === "classChart") {
-      var legendEl = document.getElementById("classAgingLegend");
-      if (legendEl) legendEl.style.display = showingTable ? "" : "none";
-    }
   });
 
   // ─── Aggregation ──────────────────────────────────────────
@@ -438,6 +468,14 @@
     return { classAging: classAging, agingTiers: agingTiers, totalValue: totalValue };
   }
 
+  function renderTierLegend(elId) {
+    var el = document.getElementById(elId);
+    if (!el) return;
+    el.innerHTML = TIER_LABELS_SHORT.map(function (lbl, i) {
+      return '<span class="item"><span class="swatch" style="background:' + TIER_COLORS[i] + '"></span>' + lbl + "</span>";
+    }).join("");
+  }
+
   function drawAgingChart(records) {
     var agingData = buildAgingData(records);
     var tiers = agingData.agingTiers;
@@ -445,7 +483,7 @@
     renderBars("agingChart", tiers, {
       value: function (d) { return d.value; },
       label: function (d) { return d.tier; },
-      color: function (d) { return seqColors[tiers.indexOf(d)]; },
+      color: function (d) { return TIER_COLORS[tierBucket(tiers.indexOf(d))]; },
       valueLabel: function (d) { return fmtTHB(d.value) + '<span class="sub">' + pct1(100 * d.value / total) + "</span>"; },
       tipTitle: function (d) { return "Aging: " + d.tier; },
       tipRows: function (d) { return [["Stock value", fmtTHBFull(d.value)], ["% of total", pct1(100 * d.value / total)], ["Quantity", fmtInt(d.qty)]]; }
@@ -455,24 +493,22 @@
   }
 
   function drawClassAgingChart(records) {
+    renderTierLegend("classAgingLegend");
     var agingData = buildAgingData(records);
     var rows = agingData.classAging;
     var agingTotalValue = agingData.totalValue || 1;
-    var max = Math.max.apply(null, rows.map(function (d) { return d.total; })) || 1;
-
-    document.getElementById("classAgingLegend").innerHTML = TIER_LABELS_SHORT.map(function (lbl, i) {
-      return '<span class="item"><span class="swatch" style="background:' + TIER_COLORS[i] + '"></span>' + lbl + "</span>";
-    }).join("");
 
     var container = document.getElementById("classChart");
     container.innerHTML = "";
     rows.forEach(function (d) {
-      var w = Math.min(Math.max((d.total / max) * 100, 0.6), 100);
       var row = document.createElement("div");
       row.className = "bar-row";
       var label = document.createElement("div"); label.className = "bar-label"; label.textContent = d.name; row.appendChild(label);
       var track = document.createElement("div"); track.className = "bar-track";
-      var stack = document.createElement("div"); stack.className = "bar-stack"; stack.style.width = w + "%";
+      // Always full width — this is a 100%-stacked bar showing each class's
+      // own tier composition, not a magnitude comparison across classes
+      // (that comparison already lives in the Value/% column to the right).
+      var stack = document.createElement("div"); stack.className = "bar-stack"; stack.style.width = "100%";
       d.tiers.forEach(function (v, i) {
         if (v <= 0) return;
         var segPct = v / d.total * 100;
@@ -511,15 +547,16 @@
   function computeBranches(records) {
     var map = {}, order = [];
     records.forEach(function (d) {
-      if (!map[d.branch]) { map[d.branch] = { branch: d.branch, value: 0, qty: 0, skuSet: {}, skuCountSum: 0, isDC: false }; order.push(d.branch); }
+      if (!map[d.branch]) { map[d.branch] = { branch: d.branch, value: 0, qty: 0, skuSet: {}, skuCountSum: 0, isDC: false, toRawSum: 0, toRawCount: 0 }; order.push(d.branch); }
       var b = map[d.branch];
       b.value += d.urAmt; b.qty += d.urQty; b.skuSet[d.articleId] = true; b.skuCountSum += d.skuCount;
       if (d.isDC) b.isDC = true;
+      if (d.turnoverDays > 0) { b.toRawSum += d.turnoverDays; b.toRawCount++; }
     });
     return order.map(function (name) {
       var b = map[name];
       var sku = b.skuCountSum > 0 ? b.skuCountSum : Object.keys(b.skuSet).length;
-      return { branch: b.branch, value: b.value, qty: b.qty, sku: sku, isDC: b.isDC };
+      return { branch: b.branch, value: b.value, qty: b.qty, sku: sku, isDC: b.isDC, toRaw: b.toRawCount > 0 ? b.toRawSum / b.toRawCount : 0 };
     });
   }
 
@@ -530,24 +567,53 @@
     var isAmt = S.branchMetric === "amt";
     var metricOf = function (d) { return isAmt ? d.value : d.qty; };
     var fmtMetric = isAmt ? fmtTHB : fmtInt;
-    var fmtMetricFull = isAmt ? fmtTHBFull : fmtInt;
-    rows = rows.slice().sort(function (a, b) { return metricOf(b) - metricOf(a); });
     var total = rows.reduce(function (s, d) { return s + metricOf(d); }, 0) || 1;
+    var max = Math.max.apply(null, rows.map(metricOf)) || 1;
 
     document.getElementById("branchChartTitle").textContent = isAmt ? "มูลค่าสต็อกตามสาขา (UR_AMT)" : "จำนวนสต็อกตามสาขา (UR_QTY)";
 
-    renderBars("branchChart", rows, {
-      value: metricOf,
-      label: function (d) { return d.branch; },
-      color: function () { return "var(--accent)"; },
-      valueLabel: function (d) { return fmtMetric(metricOf(d)) + '<span class="sub">' + pct1(100 * metricOf(d) / total) + "</span>"; },
-      tipTitle: function (d) { return d.branch; },
-      tipRows: function (d) { return [["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)], ["% of total shown", pct1(100 * metricOf(d) / total)], ["SKUs", fmtInt(d.sku)]]; }
+    var sortedRows = rows.slice().sort(function (a, b) { return metricOf(b) - metricOf(a); });
+
+    var listEl = document.getElementById("branchChart");
+    listEl.innerHTML = "";
+    sortedRows.forEach(function (d, i) {
+      var v = metricOf(d);
+      var w = Math.min(Math.max((v / max) * 100, 0.6), 100);
+      var bucket = turnoverBucket(d.toRaw);
+
+      var row = document.createElement("div");
+      row.className = "rank-row"; row.tabIndex = 0;
+
+      var num = document.createElement("div"); num.className = "rank-num"; num.textContent = String(i + 1); row.appendChild(num);
+
+      var name = document.createElement("div"); name.className = "rank-name";
+      name.innerHTML = d.branch + (d.isDC ? ' <span class="tag">DC</span>' : "");
+      row.appendChild(name);
+
+      var track = document.createElement("div"); track.className = "bar-track";
+      var fill = document.createElement("div"); fill.className = "bar-fill"; fill.style.width = w + "%"; fill.style.background = "var(--accent)";
+      track.appendChild(fill); row.appendChild(track);
+
+      var meta = document.createElement("div"); meta.className = "rank-meta";
+      meta.innerHTML = '<span class="rank-value">' + fmtMetric(v) + '</span><span class="rank-pct">' + pct1(100 * v / total) + "</span>" +
+        (d.toRaw > 0 ? '<span class="turnover-badge ' + TURNOVER_BADGE_CLASS[bucket] + '">' + fmtDays(d.toRaw) + "</span>" : "");
+      row.appendChild(meta);
+
+      var tipFn = function (evt) {
+        showTip(evt, d.branch, [["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)], ["% of total", pct1(100 * v / total)], ["SKUs", fmtInt(d.sku)], ["Turnover", d.toRaw > 0 ? fmtDays(d.toRaw) : "–"]]);
+      };
+      row.addEventListener("mouseenter", tipFn);
+      row.addEventListener("mousemove", moveTip);
+      row.addEventListener("mouseleave", hideTip);
+      row.addEventListener("focus", tipFn);
+      row.addEventListener("blur", hideTip);
+
+      listEl.appendChild(row);
     });
 
-    var headers = ["Branch", "Value (UR_AMT)", "Quantity (UR_QTY)", "% of total shown", "SKUs"];
-    var tableRows = rows.map(function (d) {
-      return [d.branch + (d.isDC ? " (DC)" : ""), fmtTHBFull(d.value), fmtInt(d.qty), pct1(100 * metricOf(d) / total), fmtInt(d.sku)];
+    var headers = ["Branch", "Value (UR_AMT)", "Quantity (UR_QTY)", "% of total shown", "SKUs", "Turnover"];
+    var tableRows = sortedRows.map(function (d) {
+      return [d.branch + (d.isDC ? " (DC)" : ""), fmtTHBFull(d.value), fmtInt(d.qty), pct1(100 * metricOf(d) / total), fmtInt(d.sku), d.toRaw > 0 ? fmtDays(d.toRaw) : ""];
     });
     renderTable("branchChart", headers, tableRows);
     branchChartExportState = { headers: headers, rows: tableRows };
@@ -596,8 +662,10 @@
     renderBars("vBranchTOChart", rows, {
       value: function (d) { return d.toRaw; },
       label: function (d) { return d.branch; },
-      color: function () { return "var(--accent)"; },
-      valueLabel: function (d) { return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>"; },
+      color: function (d) { return seqBlueByRank(rows.indexOf(d), rows.length); },
+      valueLabel: function (d) {
+        return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>";
+      },
       tipTitle: function (d) { return d.branch; },
       tipRows: function (d) { return [["Turnover (T_O)", fmtDays(d.toRaw)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
     });
@@ -618,11 +686,37 @@
 
   var brandTOExportState = null;
 
+  function renderBrandTabs(brands) {
+    var el = document.getElementById("brandTOFilterTabs");
+    if (!el) return;
+    var options = ["ALL"].concat(brands);
+    el.innerHTML = options.map(function (b) {
+      var active = S.brandTOFilter === b;
+      return '<button type="button" data-brand="' + b.replace(/"/g, "&quot;") + '"' + (active ? ' class="active" aria-pressed="true"' : ' aria-pressed="false"') + ">" + b + "</button>";
+    }).join("");
+    Array.prototype.forEach.call(el.querySelectorAll("button"), function (btn) {
+      btn.addEventListener("click", function () {
+        S.brandTOFilter = btn.getAttribute("data-brand");
+        drawTurnoverByBrand(activeTurnoverBrandData());
+      });
+    });
+  }
+
   // Fixed to one row per brand, reading T_O as-is from a dedicated
-  // "turnover_brand" sheet — mirrors drawVendorBranchTO above.
+  // "turnover_brand" sheet — mirrors drawVendorBranchTO above. The brand tab
+  // filter and free-text search both narrow what's rendered without
+  // reshaping the tab list itself (always built from the full unfiltered set).
   function drawTurnoverByBrand(records) {
     var dims = ["mch3", "brand", "classStock"];
-    var rows = aggregateByDims(records, dims).sort(function (a, b) { return b.toRaw - a.toRaw; });
+
+    var brandSet = {};
+    records.forEach(function (d) { if (d.brand) brandSet[d.brand] = true; });
+    renderBrandTabs(Object.keys(brandSet).sort());
+
+    var filtered = S.brandTOFilter === "ALL" ? records : records.filter(function (d) { return d.brand === S.brandTOFilter; });
+    var rows = aggregateByDims(filtered, dims).sort(function (a, b) { return b.toRaw - a.toRaw; });
+
+    function labelOf(d) { return dims.map(function (k) { return d[k]; }).join(" · "); }
 
     // Three dims joined ("MCH3 · Brand · CLASS_STOCK") need a much wider
     // label column than the default — narrows the bar track itself so the
@@ -632,20 +726,20 @@
     chartContainer.style.setProperty("--label-w", "260px");
     chartContainer.style.setProperty("--label-w-mobile", "170px");
 
-    function labelOf(d) { return dims.map(function (k) { return d[k]; }).join(" · "); }
-
     renderBars("brandTOChart", rows, {
       value: function (d) { return d.toRaw; },
       label: labelOf,
-      color: function () { return "var(--accent)"; },
-      valueLabel: function (d) { return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>"; },
+      color: function (d) { return seqBlueByRank(rows.indexOf(d), rows.length); },
+      valueLabel: function (d) {
+        return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>";
+      },
       tipTitle: labelOf,
       tipRows: function (d) { return [["Turnover (T_O)", fmtDays(d.toRaw)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
     });
 
     var totalValue = 0, totalQty = 0, totalToRawSum = 0, totalToRawCount = 0;
     rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; });
-    records.forEach(function (d) { if (d.turnoverDays > 0) { totalToRawSum += d.turnoverDays; totalToRawCount++; } });
+    filtered.forEach(function (d) { if (d.turnoverDays > 0) { totalToRawSum += d.turnoverDays; totalToRawCount++; } });
     var totalTurnover = totalToRawCount > 0 ? totalToRawSum / totalToRawCount : 0;
 
     var headers = ["MCH3", "Brand", "CLASS_STOCK", "Value (THB)", "Quantity", "Turnover"];
@@ -679,7 +773,11 @@
     var html = '<table class="data-table"><thead><tr>';
     headers.forEach(function (h) { html += "<th>" + h + "</th>"; });
     html += "</tr></thead><tbody>";
-    tableRows.forEach(function (r) { html += "<tr>"; r.forEach(function (c) { html += "<td>" + c + "</td>"; }); html += "</tr>"; });
+    rows.forEach(function (d) {
+      html += "<tr><td>" + d.mch3 + "</td><td>" + d.mch2 + "</td><td>" + d.mch1 + "</td><td>" + d.mc + "</td><td>" +
+        fmtInt(d.qty) + "</td><td>" + fmtTHBFull(d.value) + '</td><td><span class="turnover-badge ' +
+        mcTurnoverBadgeClass(d.toRaw) + '">' + fmtDays(d.toRaw) + "</span></td></tr>";
+    });
     html += "</tbody></table>";
     document.getElementById("mchFlatTableWrap").innerHTML = html;
     mcTop10ExportState = { headers: headers, rows: tableRows };

@@ -5,3 +5,13 @@ package-lock.json
 # Real business data - never commit these
 analytics_report.html
 vendor-stock-overview-infographic.html
+
+# Local-only browser preview (mocks the Tableau Extensions API with sample
+# data) — not part of the extension itself, just a way to eyeball layout/CSS
+# changes without opening Tableau. See preview.html for how to use it.
+preview.html
+preview_mock_tableau.js
+
+# A separate standalone React/Vite mockup project used only as a design
+# reference for this extension's styling — not part of the extension itself.
+inventory-stock-intelligence-dashboard/

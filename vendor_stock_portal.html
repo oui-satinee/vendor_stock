@@ -20,6 +20,7 @@
     --accent: #2a78d6;
     --accent-soft: rgba(42,120,214,0.12);
     --accent-violet: #4a3aa7;
+    --accent-violet-soft: rgba(74,58,167,0.12);
     --status-critical: #d03b3b;
     --status-critical-bg: rgba(208,59,59,0.10);
     --status-good: #0ca30c;
@@ -38,7 +39,7 @@
       --bg: #0d0f12; --surface: #15181d; --surface-2: #1c2027; --surface-3: #191d23;
       --border: rgba(255,255,255,0.10); --border-strong: rgba(255,255,255,0.18);
       --text-primary: #ffffff; --text-secondary: #c3c8d1; --text-muted: #8a8f9c;
-      --accent: #3987e5; --accent-soft: rgba(57,135,229,0.16); --accent-violet: #9085e9;
+      --accent: #3987e5; --accent-soft: rgba(57,135,229,0.16); --accent-violet: #9085e9; --accent-violet-soft: rgba(144,133,233,0.18);
       --status-critical: #e66767; --status-critical-bg: rgba(230,103,103,0.15);
       --status-good: #0ca30c; --status-good-bg: rgba(12,163,12,0.16);
       --status-warning: #fab219; --status-warning-bg: rgba(250,178,25,0.14);
@@ -51,7 +52,7 @@
     --bg: #0d0f12; --surface: #15181d; --surface-2: #1c2027; --surface-3: #191d23;
     --border: rgba(255,255,255,0.10); --border-strong: rgba(255,255,255,0.18);
     --text-primary: #ffffff; --text-secondary: #c3c8d1; --text-muted: #8a8f9c;
-    --accent: #3987e5; --accent-soft: rgba(57,135,229,0.16); --accent-violet: #9085e9;
+    --accent: #3987e5; --accent-soft: rgba(57,135,229,0.16); --accent-violet: #9085e9; --accent-violet-soft: rgba(144,133,233,0.18);
     --status-critical: #e66767; --status-critical-bg: rgba(230,103,103,0.15);
     --status-good: #0ca30c; --status-good-bg: rgba(12,163,12,0.16);
     --gridline: #2c3038; --baseline: #383a42;
@@ -113,18 +114,28 @@
 
   section{ margin-top: 48px; }
   .wrap > section:first-of-type{ margin-top: 0; }
-  .section-head{ margin-bottom: 18px; }
-  .section-kicker{ font-family:Arial,Helvetica,sans-serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 6px; }
+  .section-head{ margin-bottom: 18px; display:flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
+  .section-kicker{ font-family:Arial,Helvetica,sans-serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 0; }
   .section-title{ font-size: 20px; font-weight: 600; }
   .section-sub{ font-size: 13.5px; color: var(--text-secondary); margin-top: 6px; max-width: 68ch; }
 
   .kpi-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
-  .kpi-tile{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 24px; box-shadow: var(--shadow); }
+  .kpi-tile{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px 24px; box-shadow: var(--shadow); }
+  .kpi-tile-head{ display:flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .kpi-label{ font-size: 13.5px; color: var(--text-muted); font-weight: 500; }
+  .kpi-icon{ width: 38px; height: 38px; border-radius: 10px; display:flex; align-items:center; justify-content:center; flex-shrink: 0; }
+  .kpi-icon svg{ width: 19px; height: 19px; }
+  .kpi-icon.blue{ background: var(--accent-soft); color: var(--accent); }
+  .kpi-icon.violet{ background: var(--accent-violet-soft); color: var(--accent-violet); }
+  .kpi-icon.critical{ background: var(--status-critical-bg); color: var(--status-critical); }
+  .kpi-icon.warning{ background: var(--status-warning-bg); color: var(--status-warning); }
   .kpi-value{ font-size: 30px; font-weight: 600; margin-top: 10px; letter-spacing: -0.01em; }
   .kpi-value.critical{ color: var(--status-critical); }
   .kpi-value.good{ color: var(--status-good); }
+  .kpi-value.warning{ color: var(--status-warning); }
   .kpi-sub{ font-size: 13px; color: var(--text-secondary); margin-top: 6px; }
+  .kpi-sub.critical{ color: var(--status-critical); font-weight: 600; }
+  .kpi-sub.warning{ color: var(--status-warning); font-weight: 600; }
 
   .chart-grid{ display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
   @media (max-width: 860px){ .chart-grid{ grid-template-columns: 1fr; } }
@@ -145,20 +156,49 @@
 
   .legend{ display:flex; gap: 16px; flex-wrap: wrap; margin: 14px 0 6px; font-size: 12.5px; color: var(--text-secondary); }
   .legend .item{ display:flex; align-items:center; gap: 6px; }
-  .legend .swatch{ width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .legend .swatch{ width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+  .toolbar{ display:flex; gap: 10px; flex-wrap: wrap; align-items:center; margin: 14px 0 4px; }
+  .search-input, .select-input{
+    font-family:Arial,Helvetica,sans-serif; font-size: 12.5px; color: var(--text-primary);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+  }
+  .search-input{ flex: 1 1 220px; min-width: 160px; }
+  .search-input::placeholder{ color: var(--text-muted); }
+  .select-input{ flex: 0 0 auto; cursor: pointer; }
+  .search-input:focus-visible, .select-input:focus-visible{ outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .turnover-badge{ display:inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; vertical-align: middle; }
+  .turnover-badge.good{ background: var(--status-good-bg); color: var(--status-good); }
+  .turnover-badge.warning{ background: var(--status-warning-bg); color: var(--status-warning); }
+  .turnover-badge.critical{ background: var(--status-critical-bg); color: var(--status-critical); }
+  .turnover-badge.neutral{ background: var(--surface-2); color: var(--text-secondary); }
 
   .bars{ margin-top: 14px; display:flex; flex-direction: column; gap: 3px; }
   .bar-row{ display:grid; grid-template-columns: var(--label-w, 168px) 1fr auto; align-items: center; gap: 10px; padding: 6px 0; border-radius: 6px; cursor: default; }
   .bar-row:hover{ background: var(--surface-2); }
-  .bar-label{ font-size: 12.5px; color: var(--text-secondary); text-align: right; line-height:1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-label{ font-size: 12.5px; font-weight: 600; color: var(--text-secondary); text-align: left; line-height:1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bar-label .tag{ display:inline-block; margin-left: 5px; font-size: 10px; font-weight: 500; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
-  .bar-track{ position: relative; height: 18px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
-  .bar-fill{ position:absolute; left:0; top:0; height:100%; border-radius: 4px; min-width: 3px; }
-  .bar-stack{ position:absolute; left:0; top:0; height:100%; display:flex; gap:2px; border-radius: 4px; overflow:hidden; }
+  .bar-track{ height: 18px; padding: 2px; background: var(--surface-3); border-radius: 999px; overflow: hidden; display:flex; align-items:stretch; }
+  .bar-fill{ height:100%; border-radius: 999px; min-width: 3px; }
+  .bar-stack{ height:100%; display:flex; gap:2px; border-radius: 999px; overflow:hidden; }
   .bar-seg{ height:100%; min-width:2px; }
+  .bar-seg:first-child{ border-radius: 999px 0 0 999px; }
+  .bar-seg:last-child{ border-radius: 0 999px 999px 0; }
+  .bar-seg:only-child{ border-radius: 999px; }
   .bar-value{ font-size: 12.5px; font-weight: 500; color: var(--text-primary); min-width: 108px; white-space: nowrap; }
   .bar-value .sub{ color: var(--text-muted); font-weight: 400; margin-left: 6px; }
   .bar-value .flag-critical{ color: var(--status-critical); font-weight: 600; }
+  .bar-value .flag-warning{ color: var(--status-warning); font-weight: 600; }
+
+  .rank-list{ margin-top: 6px; display:flex; flex-direction: column; gap: 1px; }
+  .rank-row{ display:grid; grid-template-columns: 22px minmax(120px, 200px) 1fr auto; align-items: center; gap: 14px; padding: 9px 6px; border-radius: 8px; }
+  .rank-row:hover{ background: var(--surface-2); }
+  .rank-num{ font-size: 11.5px; font-weight: 500; color: var(--text-muted); text-align: right; }
+  .rank-name{ font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display:flex; align-items:center; gap: 6px; }
+  .rank-meta{ display:flex; align-items:baseline; gap: 10px; justify-self: end; white-space: nowrap; font-size: 12.5px; }
+  .rank-meta .rank-value{ font-weight: 600; color: var(--text-primary); }
+  .rank-meta .rank-pct{ color: var(--text-muted); }
 
   table.data-table{ width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 14px; }
   table.data-table th, table.data-table td{ padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: right; }
@@ -188,6 +228,9 @@
   @media (max-width: 640px){
     .bar-row{ grid-template-columns: var(--label-w-mobile, 108px) 1fr auto; }
     .bar-label{ font-size: 11.5px; }
+    .rank-row{ grid-template-columns: 18px minmax(88px, 130px) 1fr auto; gap: 8px; }
+    .rank-name{ font-size: 12px; }
+    .rank-meta{ font-size: 11.5px; gap: 6px; }
     .report-title{ font-size: 17px; }
     .report-header-inner{ align-items: flex-start; }
     .report-header-right{ align-items: flex-start; }
@@ -237,11 +280,26 @@
 
   <section id="kpi">
     <div class="kpi-grid">
-      <div class="kpi-tile"><div class="kpi-label">Total Stock Value</div><div class="kpi-value num tabular" id="kpiValue">–</div><div class="kpi-sub" id="kpiValueSub">–</div></div>
-      <div class="kpi-tile"><div class="kpi-label">UR_QTY</div><div class="kpi-value num tabular" id="kpiQty">–</div><div class="kpi-sub">total quantity</div></div>
-      <div class="kpi-tile"><div class="kpi-label">SKU Count</div><div class="kpi-value num tabular" id="kpiSku">–</div><div class="kpi-sub">distinct ARTICLE_ID</div></div>
-      <div class="kpi-tile"><div class="kpi-label">Dead Stock Value</div><div class="kpi-value num tabular critical" id="kpiDead">–</div><div class="kpi-sub" id="kpiDeadSub">–</div></div>
-      <div class="kpi-tile"><div class="kpi-label">Aging &gt; 180 Days</div><div class="kpi-value num tabular" id="kpiAging180">–</div><div class="kpi-sub" id="kpiAging180Sub">–</div></div>
+      <div class="kpi-tile">
+        <div class="kpi-tile-head"><div class="kpi-label">Total Stock Value</div><div class="kpi-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div></div>
+        <div class="kpi-value num tabular" id="kpiValue">–</div><div class="kpi-sub" id="kpiValueSub">–</div>
+      </div>
+      <div class="kpi-tile">
+        <div class="kpi-tile-head"><div class="kpi-label">UR_QTY</div><div class="kpi-icon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div></div>
+        <div class="kpi-value num tabular" id="kpiQty">–</div><div class="kpi-sub">total quantity</div>
+      </div>
+      <div class="kpi-tile">
+        <div class="kpi-tile-head"><div class="kpi-label">SKU Count</div><div class="kpi-icon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></div></div>
+        <div class="kpi-value num tabular" id="kpiSku">–</div><div class="kpi-sub">distinct ARTICLE_ID</div>
+      </div>
+      <div class="kpi-tile">
+        <div class="kpi-tile-head"><div class="kpi-label">Dead Stock Value</div><div class="kpi-icon critical"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div></div>
+        <div class="kpi-value num tabular critical" id="kpiDead">–</div><div class="kpi-sub critical" id="kpiDeadSub">–</div>
+      </div>
+      <div class="kpi-tile">
+        <div class="kpi-tile-head"><div class="kpi-label">Aging &gt; 180 Days</div><div class="kpi-icon warning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div></div>
+        <div class="kpi-value num tabular" id="kpiAging180">–</div><div class="kpi-sub" id="kpiAging180Sub">–</div>
+      </div>
     </div>
   </section>
 
@@ -287,7 +345,7 @@
           <button class="btn btn-icon" id="branchChartExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
         </div>
       </div>
-      <div class="bars" id="branchChart"></div>
+      <div class="rank-list" id="branchChart"></div>
       <div class="table-wrap table-view" id="branchChart-table" hidden></div>
     </div>
   </section>
@@ -318,6 +376,9 @@
             <button class="btn btn-icon" id="brandTOExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
           </div>
         </div>
+        <div class="toolbar">
+          <div class="role-switch" id="brandTOFilterTabs" role="group" aria-label="กรองตาม Brand"></div>
+        </div>
         <div class="bars" id="brandTOChart"></div>
         <div class="table-wrap table-view" id="brandTOChart-table" hidden></div>
       </div>
@@ -325,7 +386,7 @@
 
     <div class="chart-card full" style="margin-top:16px">
       <div class="chart-head">
-        <div><div class="chart-title">Turnover ตาม MC (Top10)</div></div>
+        <div><div class="chart-title">Turnover ตาม MC (Top 10)</div><div class="chart-caption">10 อันดับ Material Class (MC) เรียงตามระยะเวลาหมุนเวียนคงคลัง</div></div>
         <div class="chart-controls">
           <button class="btn btn-icon" id="mcTop10ExportBtn" aria-label="Export CSV" title="Export CSV"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 19h14"/></svg></button>
         </div>
