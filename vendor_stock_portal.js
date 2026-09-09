@@ -50,18 +50,6 @@
 
   function tierBucket(tierIdx) { return tierIdx <= 1 ? 0 : (tierIdx <= 4 ? 1 : 2); }
 
-  // Turnover-speed status coloring for section 02's per-branch badge —
-  // <=180d normal, <=250d moderate, >250d high-risk. Section 03's two
-  // turnover bar charts do NOT use this (see seqBlueByValue below); this
-  // bucketing only still backs the standalone pill badge in the branch list.
-  var TURNOVER_BADGE_CLASS = ["good", "warning", "critical"];
-  function turnoverBucket(days) {
-    if (!days || days <= 0) return 0;
-    if (days <= 180) return 0;
-    if (days <= 250) return 1;
-    return 2;
-  }
-
   // Sequential blue ramp (dark -> light) for section 03's "Turnover ตาม
   // สาขา" and "Turnover ตาม Brand" bar lists — keyed by the actual Turnover
   // (days) VALUE relative to the currently displayed (possibly filtered)
@@ -403,6 +391,12 @@
     chartEl.style.display = showingTable ? "" : "none";
     btn.textContent = showingTable ? "View table" : "View chart";
     btn.setAttribute("aria-pressed", String(!showingTable));
+    // "Turnover ตาม Brand" is height-pinned to "Turnover ตาม สาขา" (see
+    // syncTurnoverCardHeights) — switching EITHER box between chart/table
+    // view changes that reference height, so resync regardless of which
+    // one was just toggled. Hoisted function declaration, so it's callable
+    // here even though it's defined later in the file.
+    syncTurnoverCardHeights();
   });
 
   // ─── Aggregation ──────────────────────────────────────────
@@ -549,16 +543,15 @@
   function computeBranches(records) {
     var map = {}, order = [];
     records.forEach(function (d) {
-      if (!map[d.branch]) { map[d.branch] = { branch: d.branch, value: 0, qty: 0, skuSet: {}, skuCountSum: 0, isDC: false, toRawSum: 0, toRawCount: 0 }; order.push(d.branch); }
+      if (!map[d.branch]) { map[d.branch] = { branch: d.branch, value: 0, qty: 0, skuSet: {}, skuCountSum: 0, isDC: false }; order.push(d.branch); }
       var b = map[d.branch];
       b.value += d.urAmt; b.qty += d.urQty; b.skuSet[d.articleId] = true; b.skuCountSum += d.skuCount;
       if (d.isDC) b.isDC = true;
-      if (d.turnoverDays > 0) { b.toRawSum += d.turnoverDays; b.toRawCount++; }
     });
     return order.map(function (name) {
       var b = map[name];
       var sku = b.skuCountSum > 0 ? b.skuCountSum : Object.keys(b.skuSet).length;
-      return { branch: b.branch, value: b.value, qty: b.qty, sku: sku, isDC: b.isDC, toRaw: b.toRawCount > 0 ? b.toRawSum / b.toRawCount : 0 };
+      return { branch: b.branch, value: b.value, qty: b.qty, sku: sku, isDC: b.isDC };
     });
   }
 
@@ -581,7 +574,6 @@
     sortedRows.forEach(function (d, i) {
       var v = metricOf(d);
       var w = Math.min(Math.max((v / max) * 100, 0.6), 100);
-      var bucket = turnoverBucket(d.toRaw);
 
       var row = document.createElement("div");
       row.className = "rank-row"; row.tabIndex = 0;
@@ -597,12 +589,11 @@
       track.appendChild(fill); row.appendChild(track);
 
       var meta = document.createElement("div"); meta.className = "rank-meta";
-      meta.innerHTML = '<span class="rank-value">' + fmtMetric(v) + '</span><span class="rank-pct">' + pct1(100 * v / total) + "</span>" +
-        (d.toRaw > 0 ? '<span class="turnover-badge ' + TURNOVER_BADGE_CLASS[bucket] + '">' + fmtDays(d.toRaw) + "</span>" : "");
+      meta.innerHTML = '<span class="rank-value">' + fmtMetric(v) + '</span><span class="rank-pct">' + pct1(100 * v / total) + "</span>";
       row.appendChild(meta);
 
       var tipFn = function (evt) {
-        showTip(evt, d.branch, [["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)], ["% of total", pct1(100 * v / total)], ["SKUs", fmtInt(d.sku)], ["Turnover", d.toRaw > 0 ? fmtDays(d.toRaw) : "–"]]);
+        showTip(evt, d.branch, [["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)], ["% of total", pct1(100 * v / total)], ["SKUs", fmtInt(d.sku)]]);
       };
       row.addEventListener("mouseenter", tipFn);
       row.addEventListener("mousemove", moveTip);
@@ -613,9 +604,9 @@
       listEl.appendChild(row);
     });
 
-    var headers = ["Branch", "Value (UR_AMT)", "Quantity (UR_QTY)", "% of total shown", "SKUs", "Turnover"];
+    var headers = ["Branch", "Value (UR_AMT)", "Quantity (UR_QTY)", "% of total shown", "SKUs"];
     var tableRows = sortedRows.map(function (d) {
-      return [d.branch + (d.isDC ? " (DC)" : ""), fmtTHBFull(d.value), fmtInt(d.qty), pct1(100 * metricOf(d) / total), fmtInt(d.sku), d.toRaw > 0 ? fmtDays(d.toRaw) : ""];
+      return [d.branch + (d.isDC ? " (DC)" : ""), fmtTHBFull(d.value), fmtInt(d.qty), pct1(100 * metricOf(d) / total), fmtInt(d.sku)];
     });
     renderTable("branchChart", headers, tableRows);
     branchChartExportState = { headers: headers, rows: tableRows };
@@ -684,22 +675,22 @@
       label: function (d) { return d.branch; },
       color: function (d) { return seqBlueByValue(d.toRaw, minToRaw, maxToRaw); },
       valueLabel: function (d) {
-        return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>";
+        return fmtDays(d.toRaw) + '<span class="sub">' + fmtInt(d.qty) + " ชิ้น</span>";
       },
       tipTitle: function (d) { return d.branch; },
-      tipRows: function (d) { return [["Turnover (T_O)", fmtDays(d.toRaw)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
+      tipRows: function (d) { return [["Turnover (T_O)", fmtDays(d.toRaw)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
     });
 
-    var totalValue = 0, totalQty = 0, totalToRawSum = 0, totalToRawCount = 0;
-    rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; });
+    var totalQty = 0, totalToRawSum = 0, totalToRawCount = 0;
+    rows.forEach(function (d) { totalQty += d.qty; });
     records.forEach(function (d) { if (d.turnoverDays > 0) { totalToRawSum += d.turnoverDays; totalToRawCount++; } });
     var totalTurnover = totalToRawCount > 0 ? totalToRawSum / totalToRawCount : 0;
 
-    var headers = ["สาขา", "Value (THB)", "Quantity", "Turnover"];
+    var headers = ["สาขา", "Quantity", "Turnover"];
     var tableRows = rows.map(function (d) {
-      return [d.branch + (d.isDC ? " (DC)" : ""), fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.toRaw)];
+      return [d.branch + (d.isDC ? " (DC)" : ""), fmtInt(d.qty), fmtDays(d.toRaw)];
     });
-    tableRows.push(["Total", fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]);
+    tableRows.push(["Total", fmtInt(totalQty), fmtDays(totalTurnover)]);
     renderTable("vBranchTOChart", headers, tableRows);
     vBranchTOExportState = { headers: headers, rows: tableRows };
     syncTurnoverCardHeights();
@@ -754,22 +745,22 @@
       label: labelOf,
       color: function (d) { return seqBlueByValue(d.toRaw, minToRaw, maxToRaw); },
       valueLabel: function (d) {
-        return fmtDays(d.toRaw) + '<span class="sub">' + fmtTHB(d.value) + " · " + fmtInt(d.qty) + " ชิ้น</span>";
+        return fmtDays(d.toRaw) + '<span class="sub">' + fmtInt(d.qty) + " ชิ้น</span>";
       },
       tipTitle: labelOf,
-      tipRows: function (d) { return [["Turnover (T_O)", fmtDays(d.toRaw)], ["Value (UR_AMT)", fmtTHBFull(d.value)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
+      tipRows: function (d) { return [["Turnover (T_O)", fmtDays(d.toRaw)], ["Quantity (UR_QTY)", fmtInt(d.qty)]]; }
     });
 
-    var totalValue = 0, totalQty = 0, totalToRawSum = 0, totalToRawCount = 0;
-    rows.forEach(function (d) { totalValue += d.value; totalQty += d.qty; });
+    var totalQty = 0, totalToRawSum = 0, totalToRawCount = 0;
+    rows.forEach(function (d) { totalQty += d.qty; });
     filtered.forEach(function (d) { if (d.turnoverDays > 0) { totalToRawSum += d.turnoverDays; totalToRawCount++; } });
     var totalTurnover = totalToRawCount > 0 ? totalToRawSum / totalToRawCount : 0;
 
-    var headers = ["MCH3", "Brand", "CLASS_STOCK", "Value (THB)", "Quantity", "Turnover"];
+    var headers = ["MCH3", "Brand", "CLASS_STOCK", "Quantity", "Turnover"];
     var tableRows = rows.map(function (d) {
-      return [d.mch3, d.brand, d.classStock, fmtTHBFull(d.value), fmtInt(d.qty), fmtDays(d.toRaw)];
+      return [d.mch3, d.brand, d.classStock, fmtInt(d.qty), fmtDays(d.toRaw)];
     });
-    tableRows.push(["Total", "", "", fmtTHBFull(totalValue), fmtInt(totalQty), fmtDays(totalTurnover)]);
+    tableRows.push(["Total", "", "", fmtInt(totalQty), fmtDays(totalTurnover)]);
     renderTable("brandTOChart", headers, tableRows);
     brandTOExportState = { headers: headers, rows: tableRows };
     syncTurnoverCardHeights();
