@@ -973,7 +973,12 @@
       }
 
       readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
-        if (tierResolvedCount(underlyingRecords) > 0) {
+        if (tierResolvedCount(underlyingRecords) > 0 && !valueTotalsMatch(summaryAgingRecords, underlyingRecords)) {
+          finishExport(summaryAgingRecords, "AGING_TIER resolved via the underlying table, but rejected — its UR_AMT/UR_QTY totals " +
+            "differ from the summary read by more than " + (VALUE_TOTAL_TOLERANCE * 100).toFixed(0) + "% (summary UR_AMT " +
+            Math.round(sumBy(summaryAgingRecords, "urAmt")) + " vs underlying " + Math.round(sumBy(underlyingRecords, "urAmt")) +
+            "). Exported the summary read's rows instead, with AGING_TIER left blank where unresolved.");
+        } else if (tierResolvedCount(underlyingRecords) > 0) {
           finishExport(underlyingRecords, buildTierWarning(underlyingRecords, AGING_DETAIL_SHEET_NAME + " (underlying table)"));
         } else {
           finishExport(summaryAgingRecords, "AGING_TIER resolved on 0 of " + summaryAgingRecords.length +
@@ -1215,15 +1220,61 @@
     return n;
   }
 
+  function sumBy(records, key) {
+    var s = 0;
+    for (var i = 0; i < records.length; i++) s += records[i][key];
+    return s;
+  }
+
+  // An underlying-table read (readUnderlyingRecordsScored) bypasses a
+  // worksheet's own view-level aggregation/relationship-join logic
+  // entirely — it reads one *physical* table's raw rows in isolation. If
+  // resolving a field (BRANCH, AGING_TIER, ...) on that table required an
+  // inner join to a dimension table, rows with no match on the join key
+  // simply won't appear, even though the worksheet's own (correctly-scoped)
+  // summary view legitimately includes them. A candidate that resolves the
+  // target field but silently drops/gains UR_AMT or UR_QTY along the way is
+  // worse than useless — it would make a KPI/box quietly wrong instead of
+  // just showing a placeholder label. Real-world confirmed: this project's
+  // own production dashboard showed Total Stock Value drop from 151.0M
+  // (summary) to 141.2M (post-fallback) for one vendor — a ~6.5% loss with
+  // no error, no warning, nothing to indicate the number had changed
+  // underneath the KPI. VALUE_TOTAL_TOLERANCE allows only for float-sum
+  // noise, not real data loss; every genuinely-verified case so far differs
+  // by a fraction of a percent when it's fine, and by several percent when
+  // it isn't.
+  var VALUE_TOTAL_TOLERANCE = 0.01;
+  function valueTotalsMatch(a, b) {
+    function within(x, y) {
+      var denom = Math.max(Math.abs(x), Math.abs(y), 1);
+      return Math.abs(x - y) / denom <= VALUE_TOTAL_TOLERANCE;
+    }
+    return within(sumBy(a, "urAmt"), sumBy(b, "urAmt")) && within(sumBy(a, "urQty"), sumBy(b, "urQty"));
+  }
+
   // If `records` came back with a field totally unresolved (every row
   // still on extractRecords' placeholder default), retry via the
   // worksheet's underlying table(s) and use that instead when it's
   // actually better — otherwise keep the original (already-empty-of-that-
-  // field) records rather than losing rows for no gain.
+  // field) records rather than losing rows for no gain. A candidate that
+  // resolves the field but changes UR_AMT/UR_QTY totals beyond
+  // VALUE_TOTAL_TOLERANCE is rejected outright (see valueTotalsMatch) —
+  // correct totals with a placeholder label beat a resolved label with
+  // silently wrong totals.
   function withFieldFallback(ws, records, field, placeholder, cache, diagOut) {
     if (records.length === 0 || fieldResolvedCount(records, field, placeholder) > 0) return Promise.resolve(records);
     return readUnderlyingRecordsScored(ws, function (recs) { return fieldResolvedCount(recs, field, placeholder); }, diagOut, cache).then(function (underlying) {
       var resolved = fieldResolvedCount(underlying, field, placeholder);
+      if (resolved > 0 && !valueTotalsMatch(records, underlying)) {
+        if (diagOut) {
+          diagOut.fallback = field + ' resolved via underlying table on "' + ws.name + '" (' + resolved + " of " + underlying.length +
+            ' rows) but REJECTED — UR_AMT/UR_QTY totals differ from the summary read by more than ' +
+            (VALUE_TOTAL_TOLERANCE * 100).toFixed(0) + '% (summary UR_AMT ' + Math.round(sumBy(records, "urAmt")) +
+            " vs underlying " + Math.round(sumBy(underlying, "urAmt")) + '). Kept the summary read\'s totals — ' +
+            field + ' stays "' + placeholder + '".';
+        }
+        return records;
+      }
       if (diagOut) {
         diagOut.fallback = resolved > 0
           ? (field + ' unresolved via summary read on "' + ws.name + '" — used its underlying table instead (' +
@@ -1531,9 +1582,15 @@
           if (stale()) return;
           var tTierDone = nowMs();
           var tierMsg;
-          if (tierResolvedCount(underlyingRecords) > 0) {
+          var tierResolved = tierResolvedCount(underlyingRecords);
+          if (tierResolved > 0 && !valueTotalsMatch(agingRecords, underlyingRecords)) {
+            tierMsg = 'AGING_TIER resolved via underlying table on "' + AGING_DETAIL_SHEET_NAME + '" (' + tierResolved + " of " +
+              underlyingRecords.length + ' rows) but REJECTED — UR_AMT/UR_QTY totals differ from the summary read by more than ' +
+              (VALUE_TOTAL_TOLERANCE * 100).toFixed(0) + '% (summary UR_AMT ' + Math.round(sumBy(agingRecords, "urAmt")) +
+              " vs underlying " + Math.round(sumBy(underlyingRecords, "urAmt")) + "). Kept the summary read's totals — tier stays unresolved.";
+          } else if (tierResolved > 0) {
             tierMsg = 'AGING_TIER unresolved via getSummaryDataAsync on "' + AGING_DETAIL_SHEET_NAME +
-              '" — used its underlying table data instead (' + tierResolvedCount(underlyingRecords) + " of " + underlyingRecords.length + " rows resolved a tier).";
+              '" — used its underlying table data instead (' + tierResolved + " of " + underlyingRecords.length + " rows resolved a tier).";
             agingRecords = underlyingRecords;
             // The plain summary read of aging_detail was the total-loss one
             // that triggered this branch — SKU Count/Dead Stock Value would
