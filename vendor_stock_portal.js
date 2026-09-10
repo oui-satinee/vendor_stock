@@ -248,14 +248,14 @@
   }
 
   // ─── State ────────────────────────────────────────────────
-  // Four worksheets, looked up by exact name. The two "summary" sheets
-  // drive the on-screen dashboard and are expected to already be
-  // pre-aggregated in Tableau (no ARTICLE_ID) for fast loading: "aging"
-  // feeds section 01 (Stock Aging) + the KPI row, "stock" feeds sections
-  // 02 (Stock by Branch) and 03 (Stock Turnover). The two "detail" sheets
-  // are full SKU-level data, read only when the header Export button is
-  // clicked, and used solely to build the downloaded .xls.
-  var AGING_SHEET_NAME = "aging";
+  // Worksheets, looked up by exact name (case-insensitive fallback — see
+  // findWorksheetByName). "aging_detail" is the sole source for section 01
+  // (Stock Aging: both the Aging Tier and Class × Aging Tier boxes) as well
+  // as the KPI row's SKU Count/Dead Stock Value/Aging > 180 Days — a
+  // separate "aging" worksheet used to feed section 01 instead, but was
+  // retired per user request (2026-09-10) once its AGING_TIER/CLASS_STOCK
+  // fields turned out to need the same underlying-table fallback
+  // aging_detail already required anyway, making it redundant.
   var AGING_DETAIL_SHEET_NAME = "aging_detail";
   var TURNOVER_BY_BRANCH_SHEET_NAME = "turnover_by_branch";
   var TURNOVER_BRAND_SHEET_NAME = "turnover_brand";
@@ -430,13 +430,14 @@
     return skuCountSum > 0 ? skuCountSum : Object.keys(skuSet).length;
   }
 
-  // Total Stock Value / UR_QTY / SKU Count / Dead Stock Value come from
-  // "turnover" — Aging > 180 Days is the one KPI that genuinely needs
-  // AGING_TIER, so it alone still comes from "aging"'s tierIdx.
-  // SKU Count and Dead Stock Value read agingDetailRecords ("aging_detail")
-  // rather than turnoverRecords ("turnover") — "turnover" doesn't carry
-  // CLASS_STOCK/ARTICLE_ID via the Extensions API even when confirmed
-  // present in Tableau itself, so it can't answer either reliably.
+  // Total Stock Value / UR_QTY come from "turnover" — SKU Count, Dead Stock
+  // Value, and Aging > 180 Days all come from "aging_detail" (agingRecords
+  // and agingDetailRecords are the same array in the common case; they can
+  // differ briefly during loadAllData()'s tier-fallback chain, see there).
+  // "turnover" doesn't carry CLASS_STOCK/ARTICLE_ID via the Extensions API
+  // even when confirmed present in Tableau itself, so it can't answer SKU
+  // Count/Dead Stock Value reliably — hence reading agingDetailRecords for
+  // those two instead of turnoverRecords.
   function computeKPIs(turnoverRecords, agingRecords, agingDetailRecords) {
     var totalValue = 0, totalQty = 0;
     turnoverRecords.forEach(function (d) {
@@ -1004,7 +1005,7 @@
       document.getElementById("dashboard").style.display = "none";
       document.getElementById("emptyState").style.display = "block";
       document.getElementById("emptyState").textContent =
-        'No data available. Add worksheets named "' + AGING_SHEET_NAME + '", "' + TURNOVER_SHEET_NAME + '", "' + TURNOVER_BY_BRANCH_SHEET_NAME +
+        'No data available. Add worksheets named "' + AGING_DETAIL_SHEET_NAME + '", "' + TURNOVER_SHEET_NAME + '", "' + TURNOVER_BY_BRANCH_SHEET_NAME +
         '", "' + TURNOVER_BRAND_SHEET_NAME + '" and/or "' + TURNOVER_MC_SHEET_NAME + '" to this dashboard.';
       return;
     }
@@ -1046,10 +1047,10 @@
   }
 
   // ─── Tableau: data loading ────────────────────────────────
-  // Two fixed worksheet names, looked up by exact name (case-insensitive):
-  // "aging" for section 01, "stock" for sections 02-03. No manual picker.
-  // Exact match (case-sensitive) wins first — if two worksheet tabs happen
-  // to normalize to the same name (e.g. "Aging" and "aging"), grabbing
+  // Fixed worksheet names, looked up by exact name (case-insensitive):
+  // "aging_detail" for section 01, no manual picker. Exact match
+  // (case-sensitive) wins first — if two worksheet tabs happen to normalize
+  // to the same name (e.g. "Aging_Detail" and "aging_detail"), grabbing
   // whichever the API happens to list first would be a silent, hard-to-spot
   // wrong pick. Only falls back to case-insensitive when there's no exact
   // spelling match at all.
@@ -1340,14 +1341,19 @@
     hideError();
     hideSyncStatus();
 
-    var agingWs = findWorksheetByName(AGING_SHEET_NAME);
     var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
     var turnoverByBranchWs = findWorksheetByName(TURNOVER_BY_BRANCH_SHEET_NAME);
     var turnoverBrandWs = findWorksheetByName(TURNOVER_BRAND_SHEET_NAME);
     var turnoverWs = findWorksheetByName(TURNOVER_SHEET_NAME);
     var turnoverMcWs = findWorksheetByName(TURNOVER_MC_SHEET_NAME);
-    var agingDiag = {}, turnoverDiag = {}, agingDetailDiag = {};
+    var turnoverDiag = {}, agingDetailDiag = {};
     var turnoverByBranchDiag = {}, turnoverBrandDiag = {};
+    // Section 01's "aging" data now comes straight from aging_detail (see
+    // AGING_DETAIL_SHEET_NAME's comment) — kept as its own variable rather
+    // than reading S.agingDetailData directly everywhere below, since it
+    // tracks the *best available* version through the fallback chain
+    // further down (may end up richer than S.agingDetailData briefly, or
+    // vice versa — they're explicitly resynced at each step).
     var agingRecords = [];
 
     // One cache per load, shared by every fallback check below, so a
@@ -1357,7 +1363,7 @@
     var underlyingCache = new Map();
     var tLoadStart = nowMs();
 
-    // Per-worksheet timing for the perf log/diagInfo — which of the 6
+    // Per-worksheet timing for the perf log/diagInfo — which of the 5
     // parallel summary reads is actually slow, not just their combined time.
     var perWorksheetMs = {};
     function timedRead(ws, diagOut, label) {
@@ -1385,7 +1391,6 @@
         formatSnapshotDate(titleSource && titleSource.populationDate) || new Date().toISOString().slice(0, 10);
 
       var missing = [];
-      if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
       if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
       if (!turnoverByBranchWs) missing.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
       if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
@@ -1396,7 +1401,6 @@
       // problem than "not found", and silent otherwise, so call it out
       // explicitly instead of just showing an empty section.
       var empty = [];
-      if (agingWs && S.agingData.length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
       if (agingDetailWs && S.agingDetailData.length === 0) empty.push('"' + AGING_DETAIL_SHEET_NAME + '"');
       if (turnoverByBranchWs && S.turnoverByBranchData.length === 0) empty.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
       if (turnoverBrandWs && S.turnoverBrandData.length === 0) empty.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
@@ -1407,8 +1411,8 @@
       if (missing.length) {
         showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
           ". Add a worksheet object named exactly that (case-insensitive) — " +
-          '"' + AGING_SHEET_NAME + '" feeds section 01\'s charts, "' + AGING_DETAIL_SHEET_NAME +
-          '" feeds the KPI row\'s SKU Count/Dead Stock Value (and Aging > 180 Days as a fallback), "' + TURNOVER_SHEET_NAME +
+          '"' + AGING_DETAIL_SHEET_NAME + '" feeds section 01\'s charts and the KPI row\'s SKU Count/Dead Stock ' +
+          'Value/Aging > 180 Days, "' + TURNOVER_SHEET_NAME +
           '" feeds the rest of the KPI row, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
           '" feed section 02-03, "' + TURNOVER_MC_SHEET_NAME + '" feeds the Turnover-by-MC (Top10) table.');
       } else if (empty.length) {
@@ -1437,7 +1441,6 @@
       console.log("[VendorStockPortal] " + perfLine);
       document.getElementById("metaLoadTime").textContent = formatLoadTimeMeta(phase, timings);
       renderDiagInfo([
-        { name: AGING_SHEET_NAME, diag: agingDiag },
         { name: AGING_DETAIL_SHEET_NAME, diag: agingDetailDiag },
         { name: TURNOVER_SHEET_NAME, diag: turnoverDiag },
         { name: TURNOVER_BY_BRANCH_SHEET_NAME, diag: turnoverByBranchDiag },
@@ -1445,13 +1448,12 @@
       ], perfLine);
     }
 
-    // aging_detail is now loaded eagerly (not just lazily on Export) — the
-    // KPI row's SKU Count and Dead Stock Value read it directly, since
+    // aging_detail is loaded eagerly and does triple duty: section 01's
+    // charts, the KPI row's SKU Count/Dead Stock Value/Aging > 180 Days,
+    // and the AGING_TIER fallback candidate for itself (see below) — since
     // "turnover" doesn't carry CLASS_STOCK/ARTICLE_ID via the Extensions
-    // API even when confirmed present in Tableau itself. Also reused below
-    // as the AGING_TIER fallback candidate instead of a separate fetch.
+    // API even when confirmed present in Tableau itself.
     Promise.all([
-      timedRead(agingWs, agingDiag, AGING_SHEET_NAME),
       timedRead(agingDetailWs, agingDetailDiag, AGING_DETAIL_SHEET_NAME),
       timedRead(turnoverByBranchWs, turnoverByBranchDiag, TURNOVER_BY_BRANCH_SHEET_NAME),
       timedRead(turnoverBrandWs, turnoverBrandDiag, TURNOVER_BRAND_SHEET_NAME),
@@ -1460,12 +1462,12 @@
     ]).then(function (results) {
       if (stale()) return;
       var tSummaryDone = nowMs();
-      agingRecords = results[0];
-      S.agingDetailData = results[1];
-      S.turnoverByBranchData = results[2];
-      S.turnoverBrandData = results[3];
-      S.turnoverData = results[4];
-      S.turnoverMcData = results[5];
+      S.agingDetailData = results[0];
+      S.turnoverByBranchData = results[1];
+      S.turnoverBrandData = results[2];
+      S.turnoverData = results[3];
+      S.turnoverMcData = results[4];
+      agingRecords = S.agingDetailData;
 
       // First paint: every number/box the on-screen dashboard shows already
       // has real data at this point, except BRANCH/BRAND/CLASS_STOCK/
@@ -1492,11 +1494,7 @@
       // BRANCH on turnover_by_branch and BRAND on turnover_brand have both
       // shown the same "confirmed present in Tableau, absent from
       // getSummaryDataAsync" symptom as AGING_TIER/CLASS_STOCK — retry via
-      // each sheet's underlying table(s) when that happens. aging_detail's
-      // own CLASS_STOCK gets the same check here — independent of whatever
-      // happens with "aging"'s own AGING_TIER below, since SKU Count/Dead
-      // Stock Value need aging_detail's CLASS_STOCK/ARTICLE_ID regardless
-      // of whether "aging" itself ever needs aging_detail as a fallback.
+      // each sheet's underlying table(s) when that happens.
       return Promise.all([
         withFieldFallback(turnoverByBranchWs, S.turnoverByBranchData, "branch", "Unspecified", underlyingCache, turnoverByBranchDiag),
         withFieldFallback(turnoverBrandWs, S.turnoverBrandData, "brand", "", underlyingCache, turnoverBrandDiag),
@@ -1509,6 +1507,14 @@
         S.turnoverBrandData = fixed[1];
         S.agingDetailData = fixed[2];
         S.turnoverData = fixed[3];
+        // Keep agingRecords in sync with whatever the CLASS_STOCK fallback
+        // above just did to S.agingDetailData — if it pulled from the
+        // underlying table, that same read likely already carries a
+        // resolved AGING_TIER too (same worksheet/table), which lets the
+        // tier-fallback check below skip straight to finish() instead of
+        // firing a second (cache-deduped, but still an extra async hop)
+        // underlying-table read of its own.
+        agingRecords = S.agingDetailData;
         return continueLoad(tSummaryDone, tFallbackDone);
       });
 
@@ -1527,26 +1533,21 @@
           releaseLoadLock();
         }
 
-        // "aging" produced rows but not one of them has a resolvable tier —
-        // aging_detail is already loaded above, so try it directly first,
-        // then, if that's no better, read straight from its underlying
-        // table(s), bypassing summary aggregation entirely.
+        // aging_detail produced rows but not one of them has a resolvable
+        // tier (and the CLASS_STOCK fallback above, if it ran, didn't
+        // incidentally fix this too) — read straight from its underlying
+        // table(s), bypassing summary aggregation entirely. underlyingCache
+        // means this reuses the CLASS_STOCK fallback's own underlying-table
+        // read for free if that already fetched aging_detail's table(s).
         if (!agingTierTotallyUnresolved(agingRecords)) { finish(); return; }
-
-        if (tierResolvedCount(S.agingDetailData) > 0) {
-          agingDiag.fallback = 'AGING_TIER unresolved on every row of "' + AGING_SHEET_NAME + '" — used "' + AGING_DETAIL_SHEET_NAME +
-            '" instead (' + tierResolvedCount(S.agingDetailData) + " of " + S.agingDetailData.length + " rows resolved a tier).";
-          agingRecords = S.agingDetailData;
-          finish();
-          return;
-        }
 
         readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag, underlyingCache).then(function (underlyingRecords) {
           if (stale()) return;
           var tTierDone = nowMs();
+          var tierMsg;
           if (tierResolvedCount(underlyingRecords) > 0) {
-            agingDiag.fallback = 'AGING_TIER unresolved via getSummaryDataAsync on every sheet tried — used underlying table data for "' +
-              AGING_DETAIL_SHEET_NAME + '" instead (' + tierResolvedCount(underlyingRecords) + " of " + underlyingRecords.length + " rows resolved a tier).";
+            tierMsg = 'AGING_TIER unresolved via getSummaryDataAsync on "' + AGING_DETAIL_SHEET_NAME +
+              '" — used its underlying table data instead (' + tierResolvedCount(underlyingRecords) + " of " + underlyingRecords.length + " rows resolved a tier).";
             agingRecords = underlyingRecords;
             // The plain summary read of aging_detail was the total-loss one
             // that triggered this branch — SKU Count/Dead Stock Value would
@@ -1554,10 +1555,14 @@
             // the underlying-table read just proved richer.
             S.agingDetailData = underlyingRecords;
           } else {
-            agingDiag.fallback = 'AGING_TIER never resolved — tried "' + AGING_SHEET_NAME + '", "' + AGING_DETAIL_SHEET_NAME +
-              '" (summary), and its underlying table(s) directly. Underlying tables tried: ' +
+            tierMsg = 'AGING_TIER never resolved on "' + AGING_DETAIL_SHEET_NAME +
+              '" — tried its summary read and underlying table(s) directly. Underlying tables tried: ' +
               (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".";
           }
+          // Appended, not overwritten: the CLASS_STOCK fallback above may
+          // already have written its own .fallback message onto this same
+          // diag object.
+          agingDetailDiag.fallback = (agingDetailDiag.fallback ? agingDetailDiag.fallback + " | " : "") + tierMsg;
           finish(tTierDone);
         });
       }
@@ -1572,9 +1577,9 @@
 
   // A single filter/parameter tweak on the dashboard fires FilterChanged
   // and/or SummaryDataChanged on every affected worksheet almost
-  // simultaneously — with 6 worksheets listened to, that's up to 12 nearly
+  // simultaneously — with 5 worksheets listened to, that's up to 10 nearly
   // simultaneous events. Without coalescing, each one used to kick off its
-  // own full loadAllData() run (6 parallel summary reads plus, in practice,
+  // own full loadAllData() run (5 parallel summary reads plus, in practice,
   // several heavy underlying-table fallback reads), multiplying real
   // Tableau API load several-fold for what the user experienced as one
   // action. Debounce them into a single reload.
@@ -1619,13 +1624,12 @@
     for (var i = 0; i < unregisterFns.length; i++) unregisterFns[i]();
     unregisterFns = [];
 
-    // Only the 6 worksheets loadAllData() actually reads — listening on
+    // Only the 5 worksheets loadAllData() actually reads — listening on
     // every worksheet on the dashboard (the previous behavior) meant an
     // unrelated worksheet's filter/summary-data change could trigger a full
     // reload for no reason. This extension's numbers can only change when
-    // one of these 6 does.
+    // one of these 5 does.
     var relevantSheets = [
-      findWorksheetByName(AGING_SHEET_NAME),
       findWorksheetByName(AGING_DETAIL_SHEET_NAME),
       findWorksheetByName(TURNOVER_BY_BRANCH_SHEET_NAME),
       findWorksheetByName(TURNOVER_BRAND_SHEET_NAME),
@@ -1642,12 +1646,12 @@
       // stale (pre-filter) rows. SummaryDataChanged exists specifically to
       // signal once data is actually ready — dropping it risks reintroducing
       // that race for the sake of avoiding a reload that's now already
-      // scoped to just these 6 sheets and debounced/lock-guarded above.
+      // scoped to just these 5 sheets and debounced/lock-guarded above.
       unregisterFns.push(ws.addEventListener(tableau.TableauEventType.SummaryDataChanged, scheduleReload));
     });
 
     // Parameter changes (e.g. a vendor-selector parameter) don't
-    // necessarily fire FilterChanged/SummaryDataChanged on any of the 6
+    // necessarily fire FilterChanged/SummaryDataChanged on any of the 5
     // sheets above. ParameterChanged only exists per-Parameter, not as one
     // dashboard-wide event, so every parameter needs its own listener.
     var dashboard = tableau.extensions.dashboardContent.dashboard;
