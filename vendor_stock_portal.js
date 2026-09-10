@@ -1262,6 +1262,19 @@
       "ms, total " + perf.totalMs.toFixed(0) + "ms";
   }
 
+  // Short header-visible version of the same timing (test build only — see
+  // #metaLoadTime): first paint's own number, then on the final render
+  // either that same number alone (no background work was needed) or a
+  // "<first> + <bg> = <total>" breakdown so it's obvious how much of the
+  // total came from the field/tier enrichment wave specifically.
+  function formatLoadTimeMeta(phase, timings) {
+    if (phase !== "final") return timings.summaryMs.toFixed(0) + "ms (syncing…)";
+    var bg = timings.fallbackMs + timings.tierMs;
+    return bg > 50
+      ? timings.summaryMs.toFixed(0) + "ms + " + bg.toFixed(0) + "ms bg = " + timings.totalMs.toFixed(0) + "ms"
+      : timings.totalMs.toFixed(0) + "ms";
+  }
+
   function loadAllData() {
     var mySeq = ++currentLoadSeq;
     // True once a newer loadAllData() call has started — checked at every
@@ -1305,6 +1318,7 @@
         : "load timing: first paint (summary reads only) " + timings.summaryMs.toFixed(0) +
           "ms; background field/tier enrichment continuing...";
       console.log("[VendorStockPortal] " + perfLine);
+      document.getElementById("metaLoadTime").textContent = formatLoadTimeMeta(phase, timings);
       renderDiagInfo([
         { name: AGING_SHEET_NAME, diag: agingDiag },
         { name: AGING_DETAIL_SHEET_NAME, diag: agingDetailDiag },
