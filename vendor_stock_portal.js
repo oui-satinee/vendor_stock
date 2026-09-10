@@ -335,13 +335,6 @@
     document.getElementById("loadingText").textContent = msg || "กำลังโหลดข้อมูลจาก Tableau...";
   }
   function hideLoading() { document.getElementById("loadingOverlay").style.display = "none"; }
-  // Thin, non-blocking banner shown only while the dashboard is already
-  // rendered from fast summary-data reads but the slower background
-  // enrichment pass (BRANCH/BRAND/CLASS_STOCK/AGING_TIER field-fallback —
-  // see loadAllData()) is still filling in fields the Extensions API is
-  // known to sometimes drop from those summary reads.
-  function showSyncStatus() { document.getElementById("syncStatus").style.display = "block"; }
-  function hideSyncStatus() { document.getElementById("syncStatus").style.display = "none"; }
   function showError(msg) {
     document.getElementById("errorBanner").style.display = "block";
     document.getElementById("errorText").textContent = msg;
@@ -872,120 +865,96 @@
     var agingDetailDiag = {};
 
     Promise.all([readWorksheetRecords(agingDetailWs, agingDetailDiag), readWorksheetRecords(stockBranchWs)]).then(function (results) {
+      var agingRecords = results[0];
       var stockRecords = results[1];
-      var summaryAgingRecords = results[0];
       // "turnover"/"turnover_brand" are already loaded eagerly (they also
       // feed the on-screen boxes) — reuse rather than re-fetching.
       var turnoverRecords = activeTurnoverData();
       var turnoverBrandRecords = activeTurnoverBrandData();
 
-      function buildTierWarning(records, sourceLabel) {
-        var resolved = tierResolvedCount(records);
-        if (records.length === 0 || resolved === records.length) return "";
-        return "AGING_TIER resolved on " + resolved + " of " + records.length + " exported rows (source: " + sourceLabel + "). " +
-          "Raw columns Tableau returned for \"" + AGING_DETAIL_SHEET_NAME + "\": " +
-          (agingDetailDiag.rawColumnNames ? agingDetailDiag.rawColumnNames.join(" | ") : "(none)") + ".";
-      }
+      // aging_detail is read straight from its underlying table (see
+      // readWorksheetRecords) — no API-drop symptom to work around here
+      // anymore, so a row with no resolvable AGING_TIER reflects the
+      // source data itself, not an Extensions API limitation.
+      var tierResolved = 0;
+      for (var ti = 0; ti < agingRecords.length; ti++) if (agingRecords[ti].tierIdx >= 0) tierResolved++;
+      var tierWarning = (agingRecords.length > 0 && tierResolved < agingRecords.length)
+        ? ("AGING_TIER resolved on " + tierResolved + " of " + agingRecords.length + " exported rows.")
+        : "";
 
-      function finishExport(agingRecords, tierWarning) {
-        hideLoading();
+      hideLoading();
 
-        var missing = [];
-        if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
-        if (!stockBranchWs) missing.push('"' + STOCK_BRANCH_SHEET_NAME + '"');
-        if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
-        if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
+      var missing = [];
+      if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
+      if (!stockBranchWs) missing.push('"' + STOCK_BRANCH_SHEET_NAME + '"');
+      if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
+      if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
 
-        if (agingRecords.length === 0 && stockRecords.length === 0 && turnoverRecords.length === 0 && turnoverBrandRecords.length === 0) {
-          showError("Export needs at least one of the worksheets named " +
-            '"' + AGING_DETAIL_SHEET_NAME + '", "' + STOCK_BRANCH_SHEET_NAME + '", "' + TURNOVER_SHEET_NAME + '", "' +
-            TURNOVER_BRAND_SHEET_NAME + '" — none were found.');
-          return;
-        }
-
-        var sheets = "";
-
-        if (agingRecords.length > 0) {
-          var detailHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "ARTICLE_ID", "ARTICLE_NAME_TH", "BRAND", "MCH3", "TILE_SIZE", "MCH2", "ITEM_FLAG", "CLASS_STOCK", "AGING_TIER", "AGING", "UR_QTY", "UR_AMT", "POPULATION_DATE"];
-          var detailRows = agingRecords.map(function (d) {
-            return [d.vendorId, d.vendorName, d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.tileSize, d.mch2, d.itemFlag, d.classStock,
-              d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "", d.agingDays, d.urQty, d.urAmt, formatSnapshotDate(d.populationDate)];
-          });
-          sheets += xlsSheetXml("Stock aging", detailHeaders, detailRows, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0]);
-        }
-
-        if (stockRecords.length > 0) {
-          var stockByBranchHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "ARTICLE_ID", "ARTICLE_NAME_TH", "ITEM_FLAG", "UR_QTY", "UR_AMT", "POPULATION_DATE"];
-          var stockByBranchRows = stockRecords.map(function (d) {
-            return [d.vendorId, d.vendorName, d.branch, d.mch3, d.articleId, d.articleName, d.itemFlag,
-              d.urQty, d.urAmt, formatSnapshotDate(d.populationDate)];
-          });
-          sheets += xlsSheetXml("Stock by branch", stockByBranchHeaders, stockByBranchRows, [0, 0, 0, 0, 0, 0, 0, 1, 1, 0]);
-        }
-
-        if (turnoverRecords.length > 0) {
-          var turnoverSnapshotDate = formatSnapshotDate(turnoverRecords[0].populationDate);
-          var turnoverVendorId = turnoverRecords[0].vendorId, turnoverVendorName = turnoverRecords[0].vendorName;
-          var branchTO = aggregateByDims(turnoverRecords, ["branch", "mch3"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
-          var toHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "UR_QTY", "UR_AMT", "T_O", "UR_QTY_DEAD", "POPULATION_DATE"];
-          var toRows = branchTO.map(function (d) {
-            return [turnoverVendorId, turnoverVendorName, d.branch, d.mch3, d.qty, d.value, Math.round(d.toRaw * 10) / 10, d.qtyDead, turnoverSnapshotDate];
-          });
-          sheets += xlsSheetXml("Turnover", toHeaders, toRows, [0, 0, 0, 0, 1, 1, 1, 1, 0]);
-        }
-
-        if (turnoverBrandRecords.length > 0) {
-          var brandSnapshotDate = formatSnapshotDate(turnoverBrandRecords[0].populationDate);
-          var brandVendorId = turnoverBrandRecords[0].vendorId, brandVendorName = turnoverBrandRecords[0].vendorName;
-          var brandTO = aggregateByDims(turnoverBrandRecords, ["mch3", "brand", "classStock"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
-          var brandHeaders = ["VENDOR_ID", "VENDOR_NAME", "MCH3", "BRAND", "CLASS_STOCK", "UR_QTY", "UR_AMT", "T_O", "POPULATION_DATE"];
-          var brandRows = brandTO.map(function (d) {
-            return [brandVendorId, brandVendorName, d.mch3, d.brand, d.classStock, d.qty, d.value, Math.round(d.toRaw * 10) / 10, brandSnapshotDate];
-          });
-          sheets += xlsSheetXml("Turnover by BRAND", brandHeaders, brandRows, [0, 0, 0, 0, 0, 1, 1, 1, 0]);
-        }
-
-        var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
-          '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">' +
-          '<Styles><Style ss:ID="Header"><Font ss:Bold="1"/></Style></Styles>' + sheets + "</Workbook>";
-
-        var blob = new Blob([xml], { type: "application/vnd.ms-excel" });
-        var a = document.createElement("a");
-        a.href = URL.createObjectURL(blob); a.download = "vendor_stock_full_export.xls";
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(a.href);
-
-        if (missing.length) {
-          showError("Export completed, but worksheet(s) not found: " + missing.join(", ") +
-            " — that part of the export was skipped.");
-        } else if (tierWarning) {
-          showError("Export completed, but not every row could show an aging tier. " + tierWarning);
-        }
-      }
-
-      // AGING_TIER has repeatedly come back unresolved via the summary API
-      // even on sheets confirmed to carry it as a plain, un-blended field —
-      // if that happened here too, try reading straight from the
-      // underlying table(s) before giving up.
-      if (tierResolvedCount(summaryAgingRecords) > 0 || summaryAgingRecords.length === 0) {
-        finishExport(summaryAgingRecords, buildTierWarning(summaryAgingRecords, AGING_DETAIL_SHEET_NAME));
+      if (agingRecords.length === 0 && stockRecords.length === 0 && turnoverRecords.length === 0 && turnoverBrandRecords.length === 0) {
+        showError("Export needs at least one of the worksheets named " +
+          '"' + AGING_DETAIL_SHEET_NAME + '", "' + STOCK_BRANCH_SHEET_NAME + '", "' + TURNOVER_SHEET_NAME + '", "' +
+          TURNOVER_BRAND_SHEET_NAME + '" — none were found.');
         return;
       }
 
-      readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
-        if (tierResolvedCount(underlyingRecords) > 0 && !valueTotalsMatch(summaryAgingRecords, underlyingRecords)) {
-          finishExport(summaryAgingRecords, "AGING_TIER resolved via the underlying table, but rejected — its UR_AMT/UR_QTY totals " +
-            "differ from the summary read by more than " + (VALUE_TOTAL_TOLERANCE * 100).toFixed(0) + "% (summary UR_AMT " +
-            Math.round(sumBy(summaryAgingRecords, "urAmt")) + " vs underlying " + Math.round(sumBy(underlyingRecords, "urAmt")) +
-            "). Exported the summary read's rows instead, with AGING_TIER left blank where unresolved.");
-        } else if (tierResolvedCount(underlyingRecords) > 0) {
-          finishExport(underlyingRecords, buildTierWarning(underlyingRecords, AGING_DETAIL_SHEET_NAME + " (underlying table)"));
-        } else {
-          finishExport(summaryAgingRecords, "AGING_TIER resolved on 0 of " + summaryAgingRecords.length +
-            " exported rows, and reading the underlying table(s) directly didn't help either. Underlying tables tried: " +
-            (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".");
-        }
-      });
+      var sheets = "";
+
+      if (agingRecords.length > 0) {
+        var detailHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "ARTICLE_ID", "ARTICLE_NAME_TH", "BRAND", "MCH3", "TILE_SIZE", "MCH2", "ITEM_FLAG", "CLASS_STOCK", "AGING_TIER", "AGING", "UR_QTY", "UR_AMT", "POPULATION_DATE"];
+        var detailRows = agingRecords.map(function (d) {
+          return [d.vendorId, d.vendorName, d.branch, d.articleId, d.articleName, d.brand, d.mch3, d.tileSize, d.mch2, d.itemFlag, d.classStock,
+            d.tierIdx >= 0 ? TIER_LABELS_FULL[d.tierIdx] : "", d.agingDays, d.urQty, d.urAmt, formatSnapshotDate(d.populationDate)];
+        });
+        sheets += xlsSheetXml("Stock aging", detailHeaders, detailRows, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0]);
+      }
+
+      if (stockRecords.length > 0) {
+        var stockByBranchHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "ARTICLE_ID", "ARTICLE_NAME_TH", "ITEM_FLAG", "UR_QTY", "UR_AMT", "POPULATION_DATE"];
+        var stockByBranchRows = stockRecords.map(function (d) {
+          return [d.vendorId, d.vendorName, d.branch, d.mch3, d.articleId, d.articleName, d.itemFlag,
+            d.urQty, d.urAmt, formatSnapshotDate(d.populationDate)];
+        });
+        sheets += xlsSheetXml("Stock by branch", stockByBranchHeaders, stockByBranchRows, [0, 0, 0, 0, 0, 0, 0, 1, 1, 0]);
+      }
+
+      if (turnoverRecords.length > 0) {
+        var turnoverSnapshotDate = formatSnapshotDate(turnoverRecords[0].populationDate);
+        var turnoverVendorId = turnoverRecords[0].vendorId, turnoverVendorName = turnoverRecords[0].vendorName;
+        var branchTO = aggregateByDims(turnoverRecords, ["branch", "mch3"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
+        var toHeaders = ["VENDOR_ID", "VENDOR_NAME", "BRANCH", "MCH3", "UR_QTY", "UR_AMT", "T_O", "UR_QTY_DEAD", "POPULATION_DATE"];
+        var toRows = branchTO.map(function (d) {
+          return [turnoverVendorId, turnoverVendorName, d.branch, d.mch3, d.qty, d.value, Math.round(d.toRaw * 10) / 10, d.qtyDead, turnoverSnapshotDate];
+        });
+        sheets += xlsSheetXml("Turnover", toHeaders, toRows, [0, 0, 0, 0, 1, 1, 1, 1, 0]);
+      }
+
+      if (turnoverBrandRecords.length > 0) {
+        var brandSnapshotDate = formatSnapshotDate(turnoverBrandRecords[0].populationDate);
+        var brandVendorId = turnoverBrandRecords[0].vendorId, brandVendorName = turnoverBrandRecords[0].vendorName;
+        var brandTO = aggregateByDims(turnoverBrandRecords, ["mch3", "brand", "classStock"]).sort(function (a, b) { return b.toRaw - a.toRaw; });
+        var brandHeaders = ["VENDOR_ID", "VENDOR_NAME", "MCH3", "BRAND", "CLASS_STOCK", "UR_QTY", "UR_AMT", "T_O", "POPULATION_DATE"];
+        var brandRows = brandTO.map(function (d) {
+          return [brandVendorId, brandVendorName, d.mch3, d.brand, d.classStock, d.qty, d.value, Math.round(d.toRaw * 10) / 10, brandSnapshotDate];
+        });
+        sheets += xlsSheetXml("Turnover by BRAND", brandHeaders, brandRows, [0, 0, 0, 0, 0, 1, 1, 1, 0]);
+      }
+
+      var xml = '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>' +
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">' +
+        '<Styles><Style ss:ID="Header"><Font ss:Bold="1"/></Style></Styles>' + sheets + "</Workbook>";
+
+      var blob = new Blob([xml], { type: "application/vnd.ms-excel" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = "vendor_stock_full_export.xls";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+
+      if (missing.length) {
+        showError("Export completed, but worksheet(s) not found: " + missing.join(", ") +
+          " — that part of the export was skipped.");
+      } else if (tierWarning) {
+        showError("Export completed, but not every row could show an aging tier. " + tierWarning);
+      }
     }).catch(function (err) {
       hideLoading();
       showError("Could not load data for export: " + (err.message || err));
@@ -1071,217 +1040,82 @@
     return null;
   }
 
-  // Reads all rows from one worksheet and resolves with extracted records.
-  // Resolves to [] (rather than rejecting) when the worksheet is missing or
-  // empty, so loading one sheet never blocks the other.
+  // Reads all rows from one worksheet's single underlying table and
+  // resolves with extracted records. Resolves to [] (rather than
+  // rejecting) when the worksheet is missing/empty/has no underlying
+  // table, so loading one sheet never blocks the others.
+  //
+  // Reads via getUnderlyingTableDataAsync/getUnderlyingTableDataReaderAsync,
+  // NOT getSummaryDataAsync/getSummaryDataReaderAsync — BRANCH/BRAND/
+  // CLASS_STOCK/AGING_TIER are confirmed (this file's/project memory's
+  // debugging history) to sometimes silently drop from the summary API even
+  // when present in Tableau Desktop, and every worksheet this extension
+  // reads is confirmed (2026-09-10, user verified against the workbook's
+  // own Data Source) to be backed by a single flat, unjoined table — so
+  // reading it directly sidesteps the summary-API bug entirely with none of
+  // the join/relationship-loss risk that made this same approach dangerous
+  // as a wholesale *fallback* earlier the same day (see project memory:
+  // Total Stock Value silently dropped 151.0M -> 141.2M when a fallback
+  // swapped in an underlying table whose join semantics didn't match the
+  // summary view). That risk doesn't apply here because there is no join —
+  // if a worksheet ever gains a second logical table, `tables[0]` silently
+  // reading just one of them is the signal to revisit this assumption.
+  //
+  // Paginated via the reader API, capped at getMaxPageRowLimit() (10,000
+  // rows/page) per page. NOTE: the old getSummaryDataReaderAsync-based
+  // version of this function read `reader.totalPageCount` — a property that
+  // does not exist anywhere in the bundled tableau.extensions.*.js
+  // (confirmed by grep; the real property is `pageCount`). That silently
+  // made the pagination loop a no-op (`1 < undefined` is always false),
+  // truncating any worksheet past its first 10,000 rows to just that first
+  // page. Never observed to bite in practice (this project's per-vendor row
+  // counts have stayed under that), but fixed here while rewriting this
+  // function anyway.
   function readWorksheetRecords(ws, diagOut) {
     if (!ws) { if (diagOut) diagOut.found = false; return Promise.resolve([]); }
     if (diagOut) diagOut.found = true;
-
-    var dataPromise;
-    if (typeof ws.getSummaryDataReaderAsync === "function") {
-      dataPromise = ws.getSummaryDataReaderAsync().then(function (reader) {
-        var allData = [];
-        var allColumns = null;
-        var totalPages = reader.totalPageCount;
-        function readPage(pageIndex) {
-          return reader.getPageAsync(pageIndex).then(function (pageData) {
-            if (!allColumns && pageData.columns) allColumns = pageData.columns;
-            if (pageData && pageData.data) {
-              for (var i = 0; i < pageData.data.length; i++) allData.push(pageData.data[i]);
-            }
-            showLoading('Reading "' + ws.name + '"... ' + allData.length + " rows (" + (pageIndex + 1) + "/" + totalPages + " pages)");
-            if (pageIndex + 1 < totalPages) return readPage(pageIndex + 1);
-            return { columns: allColumns, data: allData };
-          });
-        }
-        return readPage(0).then(function (result) {
-          return reader.releaseAsync().then(function () { return result; });
-        });
-      });
-    } else if (typeof ws.getSummaryDataAsync === "function") {
-      dataPromise = ws.getSummaryDataAsync().then(function (dataTable) {
-        return { columns: dataTable.columns, data: dataTable.data };
-      });
-    } else {
-      return Promise.reject(new Error('Worksheet "' + ws.name + '" does not support the data reading API.'));
+    if (typeof ws.getUnderlyingTablesAsync !== "function") {
+      return Promise.reject(new Error('Worksheet "' + ws.name + '" does not support the underlying data API.'));
     }
 
-    return dataPromise.then(function (dataTable) {
+    return ws.getUnderlyingTablesAsync().then(function (tables) {
+      if (!tables.length) return { columns: null, data: [] };
+      var tableId = tables[0].id;
+
+      if (typeof ws.getUnderlyingTableDataReaderAsync === "function") {
+        return ws.getUnderlyingTableDataReaderAsync(tableId, undefined, { includeAllColumns: true }).then(function (reader) {
+          var allData = [];
+          var allColumns = null;
+          var totalPages = reader.pageCount;
+          function readPage(pageIndex) {
+            return reader.getPageAsync(pageIndex).then(function (pageData) {
+              if (!allColumns && pageData.columns) allColumns = pageData.columns;
+              if (pageData && pageData.data) {
+                for (var i = 0; i < pageData.data.length; i++) allData.push(pageData.data[i]);
+              }
+              showLoading('Reading "' + ws.name + '"... ' + allData.length + " rows (" + (pageIndex + 1) + "/" + totalPages + " pages)");
+              if (pageIndex + 1 < totalPages) return readPage(pageIndex + 1);
+              return { columns: allColumns, data: allData };
+            });
+          }
+          return readPage(0).then(function (result) {
+            return reader.releaseAsync().then(function () { return result; });
+          });
+        });
+      }
+
+      // Older API versions without the paginated reader — single call,
+      // capped at the API's default page/row limit. Fine for this
+      // project's data volumes so far.
+      return ws.getUnderlyingTableDataAsync(tableId, { includeAllColumns: true }).then(function (dataTable) {
+        return { columns: dataTable.columns, data: dataTable.data };
+      });
+    }).then(function (dataTable) {
       if (!dataTable || !dataTable.columns) { if (diagOut) diagOut.rawRows = 0; return []; }
       if (diagOut) diagOut.rawRows = dataTable.data.length;
       var records = extractRecords(dataTable, diagOut);
       if (diagOut) diagOut.extractedRows = records.length;
       return records;
-    });
-  }
-
-  function tierResolvedCount(records) {
-    var n = 0;
-    for (var i = 0; i < records.length; i++) if (records[i].tierIdx >= 0) n++;
-    return n;
-  }
-
-  // True when a sheet has rows but not one of them resolved an aging tier —
-  // AGING_TIER has been confirmed, across this codebase's debugging
-  // history, to sometimes be dropped by the Extensions API's summary-data
-  // calls even when it's a plain (non-table-calc) calculated field living
-  // in the sheet's own primary, un-blended data source and rendering fine
-  // in Tableau Desktop. The exact mechanism is unconfirmed; this only
-  // detects the symptom so callers can try a more direct read.
-  function agingTierTotallyUnresolved(records) {
-    return records.length > 0 && tierResolvedCount(records) === 0;
-  }
-
-  // Last-resort read: bypass the worksheet's visual summary aggregation
-  // entirely and pull rows straight from its underlying data-source
-  // table(s) with every column included, not just the ones on a shelf.
-  // Tried only after getSummaryDataAsync/getSummaryDataReaderAsync have
-  // already failed to surface AGING_TIER, since it's heavier (no
-  // view-level filtering/aggregation) and there's no guarantee a given
-  // underlying table also carries the value/qty columns needed to keep a
-  // row (extractRecords drops rows where both are 0) — diagOut.underlying*
-  // records what was tried either way, for the diagnostic panel/export
-  // warning to report even when this comes up empty.
-  // Generic version of the underlying-table fallback: pick whichever
-  // logical table behind `ws` scores highest under an arbitrary field
-  // resolution metric, not just AGING_TIER — the same "field visible in
-  // Tableau but missing from getSummaryDataAsync" symptom has since shown
-  // up on BRANCH (turnover_by_branch) and BRAND/CLASS_STOCK
-  // (turnover_brand) too, so every eagerly-loaded custom sheet may need
-  // this same rescue.
-  // `cache` (optional, one plain Map created fresh per loadAllData() call) —
-  // a given worksheet's underlying table(s) can legitimately be requested by
-  // more than one fallback check in the same load (e.g. aging_detail is
-  // probed both for CLASS_STOCK via withFieldFallback and, separately, for
-  // AGING_TIER via readUnderlyingAgingRecords) and each such read is a full,
-  // unaggregated, all-columns pull of the underlying data source — one of
-  // the heaviest calls this extension makes. Memoizing by worksheet avoids
-  // firing that same heavy read twice in one load.
-  //
-  // Deliberately NOT cached *across* loads (a `cache` created fresh per
-  // loadAllData() call, not module-level/persistent): a real attempt at
-  // that was already tried and reverted — see project memory's "A
-  // column-ID-caching attempt was tried and reverted" section. It cached
-  // each worksheet's underlying-table/column IDs to do a narrower
-  // `columnsToIncludeById` read on later loads, verified correct in a
-  // Playwright mock, but tested against the real workbook it made load
-  // time WORSE (14.6s -> 18s), because the cached ids are apparently tied
-  // to the read's filter context and get invalidated on every filter
-  // change — which is exactly when this function fires. Since
-  // BRANCH/BRAND/CLASS_STOCK/AGING_TIER are confirmed (see this file's
-  // "Real-Tableau investigation" history) to need this fallback on every
-  // single load in production, not intermittently, there is no filter-
-  // independent slice of this read left to cache — re-attempting any form
-  // of cross-load id/table caching here needs verification against the
-  // real workbook before merging, not just a mock, per that same note.
-  function readUnderlyingRecordsScored(ws, scoreFn, diagOut, cache) {
-    if (!ws || typeof ws.getUnderlyingTablesAsync !== "function") return Promise.resolve([]);
-    var perTablePromise = cache && cache.get(ws);
-    if (!perTablePromise) {
-      perTablePromise = ws.getUnderlyingTablesAsync().then(function (tables) {
-        return Promise.all(tables.map(function (t) {
-          return ws.getUnderlyingTableDataAsync(t.id, { includeAllColumns: true }).then(function (dataTable) {
-            var tableDiag = {};
-            var records = extractRecords(dataTable, tableDiag);
-            return { table: t, records: records, diag: tableDiag };
-          }).catch(function (err) {
-            return { table: t, records: [], diag: { error: err.message || String(err) } };
-          });
-        }));
-      });
-      if (cache) cache.set(ws, perTablePromise);
-    }
-    return perTablePromise.then(function (perTable) {
-      if (diagOut) {
-        diagOut.underlyingAttempts = perTable.map(function (r) {
-          return (r.table.caption || r.table.id) + ": " + r.records.length + " rows, raw columns: " +
-            (r.diag.rawColumnNames ? r.diag.rawColumnNames.join(" | ") : (r.diag.error || "(none)"));
-        });
-      }
-      var best = [], bestScore = -1;
-      perTable.forEach(function (r) {
-        var score = scoreFn(r.records);
-        if (score > bestScore) { bestScore = score; best = r.records; }
-      });
-      return best;
-    }).catch(function () { return []; });
-  }
-
-  function readUnderlyingAgingRecords(ws, diagOut, cache) {
-    return readUnderlyingRecordsScored(ws, tierResolvedCount, diagOut, cache);
-  }
-
-  // How many records actually resolved a given field, instead of falling
-  // back to extractRecords' own placeholder default for it.
-  function fieldResolvedCount(records, field, placeholder) {
-    var n = 0;
-    for (var i = 0; i < records.length; i++) if (records[i][field] !== placeholder) n++;
-    return n;
-  }
-
-  function sumBy(records, key) {
-    var s = 0;
-    for (var i = 0; i < records.length; i++) s += records[i][key];
-    return s;
-  }
-
-  // An underlying-table read (readUnderlyingRecordsScored) bypasses a
-  // worksheet's own view-level aggregation/relationship-join logic
-  // entirely — it reads one *physical* table's raw rows in isolation. If
-  // resolving a field (BRANCH, AGING_TIER, ...) on that table required an
-  // inner join to a dimension table, rows with no match on the join key
-  // simply won't appear, even though the worksheet's own (correctly-scoped)
-  // summary view legitimately includes them. A candidate that resolves the
-  // target field but silently drops/gains UR_AMT or UR_QTY along the way is
-  // worse than useless — it would make a KPI/box quietly wrong instead of
-  // just showing a placeholder label. Real-world confirmed: this project's
-  // own production dashboard showed Total Stock Value drop from 151.0M
-  // (summary) to 141.2M (post-fallback) for one vendor — a ~6.5% loss with
-  // no error, no warning, nothing to indicate the number had changed
-  // underneath the KPI. VALUE_TOTAL_TOLERANCE allows only for float-sum
-  // noise, not real data loss; every genuinely-verified case so far differs
-  // by a fraction of a percent when it's fine, and by several percent when
-  // it isn't.
-  var VALUE_TOTAL_TOLERANCE = 0.01;
-  function valueTotalsMatch(a, b) {
-    function within(x, y) {
-      var denom = Math.max(Math.abs(x), Math.abs(y), 1);
-      return Math.abs(x - y) / denom <= VALUE_TOTAL_TOLERANCE;
-    }
-    return within(sumBy(a, "urAmt"), sumBy(b, "urAmt")) && within(sumBy(a, "urQty"), sumBy(b, "urQty"));
-  }
-
-  // If `records` came back with a field totally unresolved (every row
-  // still on extractRecords' placeholder default), retry via the
-  // worksheet's underlying table(s) and use that instead when it's
-  // actually better — otherwise keep the original (already-empty-of-that-
-  // field) records rather than losing rows for no gain. A candidate that
-  // resolves the field but changes UR_AMT/UR_QTY totals beyond
-  // VALUE_TOTAL_TOLERANCE is rejected outright (see valueTotalsMatch) —
-  // correct totals with a placeholder label beat a resolved label with
-  // silently wrong totals.
-  function withFieldFallback(ws, records, field, placeholder, cache, diagOut) {
-    if (records.length === 0 || fieldResolvedCount(records, field, placeholder) > 0) return Promise.resolve(records);
-    return readUnderlyingRecordsScored(ws, function (recs) { return fieldResolvedCount(recs, field, placeholder); }, diagOut, cache).then(function (underlying) {
-      var resolved = fieldResolvedCount(underlying, field, placeholder);
-      if (resolved > 0 && !valueTotalsMatch(records, underlying)) {
-        if (diagOut) {
-          diagOut.fallback = field + ' resolved via underlying table on "' + ws.name + '" (' + resolved + " of " + underlying.length +
-            ' rows) but REJECTED — UR_AMT/UR_QTY totals differ from the summary read by more than ' +
-            (VALUE_TOTAL_TOLERANCE * 100).toFixed(0) + '% (summary UR_AMT ' + Math.round(sumBy(records, "urAmt")) +
-            " vs underlying " + Math.round(sumBy(underlying, "urAmt")) + '). Kept the summary read\'s totals — ' +
-            field + ' stays "' + placeholder + '".';
-        }
-        return records;
-      }
-      if (diagOut) {
-        diagOut.fallback = resolved > 0
-          ? (field + ' unresolved via summary read on "' + ws.name + '" — used its underlying table instead (' +
-             resolved + " of " + underlying.length + " rows resolved " + field + ").")
-          : (field + ' never resolved on "' + ws.name + '" — tried summary read and its underlying table(s) directly.');
-      }
-      return resolved > 0 ? underlying : records;
     });
   }
 
@@ -1320,12 +1154,11 @@
 
   // Human-readable summary of where load time went this run, so a slow
   // load can be diagnosed by revealing #diagInfo (or reading the console)
-  // instead of guessing — see readUnderlyingRecordsScored's comment for why
-  // the "underlying-table reads" count matters: each one is a full,
-  // unaggregated, all-columns pull and by far the heaviest thing this
-  // extension can do per load. Covers the whole pipeline a reload goes
-  // through: event -> debounce -> per-worksheet reads -> field-fallback ->
-  // aging-tier fallback -> render.
+  // instead of guessing. Covers: event -> debounce -> per-worksheet reads
+  // -> render. No separate "field-fallback"/"aging-tier fallback" phases
+  // any more — readWorksheetRecords reads each worksheet's single
+  // underlying table directly now (see its own comment for why), so there
+  // is no second, slower wave chasing missing fields after the fact.
   function formatPerfSummary(perf) {
     var parts = [];
     if (perf.debounceMs != null) parts.push("event->debounce " + perf.debounceMs.toFixed(0) + "ms");
@@ -1334,12 +1167,7 @@
         return name + " " + perf.perWorksheetMs[name].toFixed(0) + "ms";
       }).join(", ") + "]");
     }
-    parts.push("summary reads " + perf.summaryMs.toFixed(0) + "ms");
-    if (perf.fallbackMs != null) {
-      parts.push("field-fallback " + perf.fallbackMs.toFixed(0) + "ms (" + perf.underlyingReads + " underlying-table read" +
-        (perf.underlyingReads === 1 ? "" : "s") + ")");
-    }
-    if (perf.tierMs != null) parts.push("aging-tier fallback " + perf.tierMs.toFixed(0) + "ms");
+    parts.push("reads " + perf.readMs.toFixed(0) + "ms");
     if (perf.renderMs != null) parts.push("render " + perf.renderMs.toFixed(0) + "ms");
     parts.push("total " + perf.totalMs.toFixed(0) + "ms");
     return "load timing: " + parts.join(", ");
@@ -1377,7 +1205,6 @@
 
     showLoading("กำลังโหลดข้อมูลจาก Tableau...");
     hideError();
-    hideSyncStatus();
 
     var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
     var turnoverByBranchWs = findWorksheetByName(TURNOVER_BY_BRANCH_SHEET_NAME);
@@ -1386,23 +1213,10 @@
     var turnoverMcWs = findWorksheetByName(TURNOVER_MC_SHEET_NAME);
     var turnoverDiag = {}, agingDetailDiag = {};
     var turnoverByBranchDiag = {}, turnoverBrandDiag = {};
-    // Section 01's "aging" data now comes straight from aging_detail (see
-    // AGING_DETAIL_SHEET_NAME's comment) — kept as its own variable rather
-    // than reading S.agingDetailData directly everywhere below, since it
-    // tracks the *best available* version through the fallback chain
-    // further down (may end up richer than S.agingDetailData briefly, or
-    // vice versa — they're explicitly resynced at each step).
-    var agingRecords = [];
 
-    // One cache per load, shared by every fallback check below, so a
-    // worksheet whose underlying table(s) more than one check needs (e.g.
-    // aging_detail, checked for both CLASS_STOCK and — later — AGING_TIER)
-    // gets that heavy read fetched at most once instead of once per check.
-    var underlyingCache = new Map();
     var tLoadStart = nowMs();
-
     // Per-worksheet timing for the perf log/diagInfo — which of the 5
-    // parallel summary reads is actually slow, not just their combined time.
+    // parallel reads is actually slow, not just their combined time.
     var perWorksheetMs = {};
     function timedRead(ws, diagOut, label) {
       var t0 = nowMs();
@@ -1412,16 +1226,30 @@
       });
     }
 
-    // Renders the dashboard from whatever's in S.*/agingRecords right now.
-    // Called twice: once right after the fast summary reads below (so the
-    // on-screen numbers aren't held hostage by the much slower background
-    // field/tier enrichment further down), then again once that enrichment
-    // finishes, to patch in any BRANCH/BRAND/CLASS_STOCK/AGING_TIER values
-    // it resolved. Safe to call twice — it's a pure function of current
-    // state, same as every filter-triggered reload already relies on.
-    function render(phase, timings) {
+    // aging_detail feeds section 01's charts and the KPI row's SKU Count/
+    // Dead Stock Value/Aging > 180 Days — "turnover" doesn't carry
+    // CLASS_STOCK/ARTICLE_ID, so it can't answer those reliably even
+    // though it has the plain UR_AMT/UR_QTY totals for the rest of the KPI
+    // row. All 5 reads go straight to each worksheet's own underlying
+    // table (see readWorksheetRecords) — every field needed is already
+    // there, so there's nothing to fall back on if one comes back
+    // incomplete; either it's found and complete, or the row/worksheet is
+    // genuinely missing.
+    Promise.all([
+      timedRead(agingDetailWs, agingDetailDiag, AGING_DETAIL_SHEET_NAME),
+      timedRead(turnoverByBranchWs, turnoverByBranchDiag, TURNOVER_BY_BRANCH_SHEET_NAME),
+      timedRead(turnoverBrandWs, turnoverBrandDiag, TURNOVER_BRAND_SHEET_NAME),
+      timedRead(turnoverWs, turnoverDiag, TURNOVER_SHEET_NAME),
+      timedRead(turnoverMcWs, null, TURNOVER_MC_SHEET_NAME)
+    ]).then(function (results) {
       if (stale()) return;
-      S.agingData = agingRecords;
+      var tReadDone = nowMs();
+      S.agingDetailData = results[0];
+      S.agingData = results[0];
+      S.turnoverByBranchData = results[1];
+      S.turnoverBrandData = results[2];
+      S.turnoverData = results[3];
+      S.turnoverMcData = results[4];
 
       var titleSource = S.agingData[0] || S.turnoverData[0] || S.turnoverByBranchData[0] || S.turnoverMcData[0];
       if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
@@ -1465,17 +1293,16 @@
 
       var tRenderStart = nowMs();
       updateAll();
-      timings.renderMs = nowMs() - tRenderStart;
-      timings.debounceMs = debounceMs;
-      timings.perWorksheetMs = perWorksheetMs;
-      // "first" phase has no total yet (the final render below sets its
-      // own, covering the whole load including background enrichment) —
-      // fill in "elapsed so far" so formatPerfSummary always has one.
-      if (timings.totalMs == null) timings.totalMs = nowMs() - tLoadStart;
+      var renderMs = nowMs() - tRenderStart;
+      var tEnd = nowMs();
 
-      var perfLine = phase === "final"
-        ? formatPerfSummary(timings)
-        : formatPerfSummary(timings) + "; background field/tier enrichment continuing...";
+      var perfLine = formatPerfSummary({
+        debounceMs: debounceMs,
+        perWorksheetMs: perWorksheetMs,
+        readMs: tReadDone - tLoadStart,
+        renderMs: renderMs,
+        totalMs: tEnd - tLoadStart
+      });
       console.log("[VendorStockPortal] " + perfLine);
       renderDiagInfo([
         { name: AGING_DETAIL_SHEET_NAME, diag: agingDetailDiag },
@@ -1483,135 +1310,10 @@
         { name: TURNOVER_BY_BRANCH_SHEET_NAME, diag: turnoverByBranchDiag },
         { name: TURNOVER_BRAND_SHEET_NAME, diag: turnoverBrandDiag }
       ], perfLine);
-    }
 
-    // aging_detail is loaded eagerly and does triple duty: section 01's
-    // charts, the KPI row's SKU Count/Dead Stock Value/Aging > 180 Days,
-    // and the AGING_TIER fallback candidate for itself (see below) — since
-    // "turnover" doesn't carry CLASS_STOCK/ARTICLE_ID via the Extensions
-    // API even when confirmed present in Tableau itself.
-    Promise.all([
-      timedRead(agingDetailWs, agingDetailDiag, AGING_DETAIL_SHEET_NAME),
-      timedRead(turnoverByBranchWs, turnoverByBranchDiag, TURNOVER_BY_BRANCH_SHEET_NAME),
-      timedRead(turnoverBrandWs, turnoverBrandDiag, TURNOVER_BRAND_SHEET_NAME),
-      timedRead(turnoverWs, turnoverDiag, TURNOVER_SHEET_NAME),
-      timedRead(turnoverMcWs, null, TURNOVER_MC_SHEET_NAME)
-    ]).then(function (results) {
-      if (stale()) return;
-      var tSummaryDone = nowMs();
-      S.agingDetailData = results[0];
-      S.turnoverByBranchData = results[1];
-      S.turnoverBrandData = results[2];
-      S.turnoverData = results[3];
-      S.turnoverMcData = results[4];
-      agingRecords = S.agingDetailData;
-
-      // First paint: every number/box the on-screen dashboard shows already
-      // has real data at this point, except BRANCH/BRAND/CLASS_STOCK/
-      // AGING_TIER — fields the Extensions API is known (see this file's/
-      // project memory's debugging history) to sometimes drop from summary
-      // reads, in which case they still carry extractRecords' placeholder
-      // ("Unspecified"/"Unclassified"/no tier bucket) until the slower
-      // field/tier enrichment below finishes and patches them in. Showing
-      // the dashboard now instead of waiting on that enrichment is the
-      // whole point of this two-phase load: in production, that enrichment
-      // wave has been measured to cost ~14-18s out of an ~15-18s total
-      // load — nearly the entire thing — for zero benefit to any number
-      // that's already correct without it.
-      render("first", { summaryMs: tSummaryDone - tLoadStart });
-
-      var needsEnrichment =
-        (S.turnoverByBranchData.length > 0 && fieldResolvedCount(S.turnoverByBranchData, "branch", "Unspecified") === 0) ||
-        (S.turnoverBrandData.length > 0 && fieldResolvedCount(S.turnoverBrandData, "brand", "") === 0) ||
-        (S.agingDetailData.length > 0 && fieldResolvedCount(S.agingDetailData, "classStock", "Unclassified") === 0) ||
-        (S.turnoverData.length > 0 && fieldResolvedCount(S.turnoverData, "branch", "Unspecified") === 0) ||
-        agingTierTotallyUnresolved(agingRecords);
-      if (needsEnrichment) showSyncStatus();
-
-      // BRANCH on turnover_by_branch and BRAND on turnover_brand have both
-      // shown the same "confirmed present in Tableau, absent from
-      // getSummaryDataAsync" symptom as AGING_TIER/CLASS_STOCK — retry via
-      // each sheet's underlying table(s) when that happens.
-      return Promise.all([
-        withFieldFallback(turnoverByBranchWs, S.turnoverByBranchData, "branch", "Unspecified", underlyingCache, turnoverByBranchDiag),
-        withFieldFallback(turnoverBrandWs, S.turnoverBrandData, "brand", "", underlyingCache, turnoverBrandDiag),
-        withFieldFallback(agingDetailWs, S.agingDetailData, "classStock", "Unclassified", underlyingCache, agingDetailDiag),
-        withFieldFallback(turnoverWs, S.turnoverData, "branch", "Unspecified", underlyingCache, turnoverDiag)
-      ]).then(function (fixed) {
-        if (stale()) return;
-        var tFallbackDone = nowMs();
-        S.turnoverByBranchData = fixed[0];
-        S.turnoverBrandData = fixed[1];
-        S.agingDetailData = fixed[2];
-        S.turnoverData = fixed[3];
-        // Keep agingRecords in sync with whatever the CLASS_STOCK fallback
-        // above just did to S.agingDetailData — if it pulled from the
-        // underlying table, that same read likely already carries a
-        // resolved AGING_TIER too (same worksheet/table), which lets the
-        // tier-fallback check below skip straight to finish() instead of
-        // firing a second (cache-deduped, but still an extra async hop)
-        // underlying-table read of its own.
-        agingRecords = S.agingDetailData;
-        return continueLoad(tSummaryDone, tFallbackDone);
-      });
-
-      function continueLoad(tSummaryDone, tFallbackDone) {
-        function finish(tTierDone) {
-          if (stale()) return;
-          hideSyncStatus();
-          var tEnd = nowMs();
-          render("final", {
-            summaryMs: tSummaryDone - tLoadStart,
-            fallbackMs: tFallbackDone - tSummaryDone,
-            underlyingReads: underlyingCache.size,
-            tierMs: tEnd - (tTierDone || tFallbackDone),
-            totalMs: tEnd - tLoadStart
-          });
-          releaseLoadLock();
-        }
-
-        // aging_detail produced rows but not one of them has a resolvable
-        // tier (and the CLASS_STOCK fallback above, if it ran, didn't
-        // incidentally fix this too) — read straight from its underlying
-        // table(s), bypassing summary aggregation entirely. underlyingCache
-        // means this reuses the CLASS_STOCK fallback's own underlying-table
-        // read for free if that already fetched aging_detail's table(s).
-        if (!agingTierTotallyUnresolved(agingRecords)) { finish(); return; }
-
-        readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag, underlyingCache).then(function (underlyingRecords) {
-          if (stale()) return;
-          var tTierDone = nowMs();
-          var tierMsg;
-          var tierResolved = tierResolvedCount(underlyingRecords);
-          if (tierResolved > 0 && !valueTotalsMatch(agingRecords, underlyingRecords)) {
-            tierMsg = 'AGING_TIER resolved via underlying table on "' + AGING_DETAIL_SHEET_NAME + '" (' + tierResolved + " of " +
-              underlyingRecords.length + ' rows) but REJECTED — UR_AMT/UR_QTY totals differ from the summary read by more than ' +
-              (VALUE_TOTAL_TOLERANCE * 100).toFixed(0) + '% (summary UR_AMT ' + Math.round(sumBy(agingRecords, "urAmt")) +
-              " vs underlying " + Math.round(sumBy(underlyingRecords, "urAmt")) + "). Kept the summary read's totals — tier stays unresolved.";
-          } else if (tierResolved > 0) {
-            tierMsg = 'AGING_TIER unresolved via getSummaryDataAsync on "' + AGING_DETAIL_SHEET_NAME +
-              '" — used its underlying table data instead (' + tierResolved + " of " + underlyingRecords.length + " rows resolved a tier).";
-            agingRecords = underlyingRecords;
-            // The plain summary read of aging_detail was the total-loss one
-            // that triggered this branch — SKU Count/Dead Stock Value would
-            // otherwise keep reading that same field-poor data even though
-            // the underlying-table read just proved richer.
-            S.agingDetailData = underlyingRecords;
-          } else {
-            tierMsg = 'AGING_TIER never resolved on "' + AGING_DETAIL_SHEET_NAME +
-              '" — tried its summary read and underlying table(s) directly. Underlying tables tried: ' +
-              (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".";
-          }
-          // Appended, not overwritten: the CLASS_STOCK fallback above may
-          // already have written its own .fallback message onto this same
-          // diag object.
-          agingDetailDiag.fallback = (agingDetailDiag.fallback ? agingDetailDiag.fallback + " | " : "") + tierMsg;
-          finish(tTierDone);
-        });
-      }
+      releaseLoadLock();
     }).catch(function (err) {
       if (stale()) return;
-      hideSyncStatus();
       showError("Could not load data from Tableau: " + (err.message || err));
       hideLoading();
       releaseLoadLock();
