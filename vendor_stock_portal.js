@@ -33,7 +33,7 @@
     isDc:        ["is_dc", "isdc", "dc_flag", "dcflag"],
     avgDaily:    ["avg_daily", "avgdaily", "avg_daily_qty", "daily_sales_qty", "avg_daily_sales"],
     turnoverDays: ["t_o_vendor", "t_o_brand", "t_o", "turnover_days"],
-    skuCount:    ["sku_count", "skucount", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"],
+    skuCount:    ["sku_count", "skucount", "count_sku", "distinct_sku", "distinct_article_id", "countd_article_id", "article_count"],
     populationDate: ["population_date", "populationdate"],
     urQtyDead:   ["ur_qty_dead", "urqtydead"],
     tileSize:    ["tile_size", "tilesize"],
