@@ -278,6 +278,15 @@
     brandTOFilter: "ALL"
   };
   var unregisterFns = [];
+  // Bumped once per loadAllData() call. Debouncing (see scheduleReload)
+  // handles the common case of a burst of filter events, but a new load can
+  // still legitimately start while a previous, slower one is still
+  // in-flight (e.g. two filter changes far enough apart not to debounce
+  // together) — this guard lets a superseded run detect that and drop its
+  // results instead of a stale, late-finishing write overwriting fresher
+  // on-screen state.
+  var currentLoadSeq = 0;
+  function nowMs() { return (window.performance && performance.now) ? performance.now() : Date.now(); }
 
   function activeAgingData() {
     return S.agingData;
@@ -1128,19 +1137,32 @@
   // up on BRANCH (turnover_by_branch) and BRAND/CLASS_STOCK
   // (turnover_brand) too, so every eagerly-loaded custom sheet may need
   // this same rescue.
-  function readUnderlyingRecordsScored(ws, scoreFn, diagOut) {
+  // `cache` (optional, one plain Map created fresh per loadAllData() call) —
+  // a given worksheet's underlying table(s) can legitimately be requested by
+  // more than one fallback check in the same load (e.g. aging_detail is
+  // probed both for CLASS_STOCK via withFieldFallback and, separately, for
+  // AGING_TIER via readUnderlyingAgingRecords) and each such read is a full,
+  // unaggregated, all-columns pull of the underlying data source — one of
+  // the heaviest calls this extension makes. Memoizing by worksheet avoids
+  // firing that same heavy read twice in one load.
+  function readUnderlyingRecordsScored(ws, scoreFn, diagOut, cache) {
     if (!ws || typeof ws.getUnderlyingTablesAsync !== "function") return Promise.resolve([]);
-    return ws.getUnderlyingTablesAsync().then(function (tables) {
-      return Promise.all(tables.map(function (t) {
-        return ws.getUnderlyingTableDataAsync(t.id, { includeAllColumns: true }).then(function (dataTable) {
-          var tableDiag = {};
-          var records = extractRecords(dataTable, tableDiag);
-          return { table: t, records: records, diag: tableDiag };
-        }).catch(function (err) {
-          return { table: t, records: [], diag: { error: err.message || String(err) } };
-        });
-      }));
-    }).then(function (perTable) {
+    var perTablePromise = cache && cache.get(ws);
+    if (!perTablePromise) {
+      perTablePromise = ws.getUnderlyingTablesAsync().then(function (tables) {
+        return Promise.all(tables.map(function (t) {
+          return ws.getUnderlyingTableDataAsync(t.id, { includeAllColumns: true }).then(function (dataTable) {
+            var tableDiag = {};
+            var records = extractRecords(dataTable, tableDiag);
+            return { table: t, records: records, diag: tableDiag };
+          }).catch(function (err) {
+            return { table: t, records: [], diag: { error: err.message || String(err) } };
+          });
+        }));
+      });
+      if (cache) cache.set(ws, perTablePromise);
+    }
+    return perTablePromise.then(function (perTable) {
       if (diagOut) {
         diagOut.underlyingAttempts = perTable.map(function (r) {
           return (r.table.caption || r.table.id) + ": " + r.records.length + " rows, raw columns: " +
@@ -1156,8 +1178,8 @@
     }).catch(function () { return []; });
   }
 
-  function readUnderlyingAgingRecords(ws, diagOut) {
-    return readUnderlyingRecordsScored(ws, tierResolvedCount, diagOut);
+  function readUnderlyingAgingRecords(ws, diagOut, cache) {
+    return readUnderlyingRecordsScored(ws, tierResolvedCount, diagOut, cache);
   }
 
   // How many records actually resolved a given field, instead of falling
@@ -1173,10 +1195,17 @@
   // worksheet's underlying table(s) and use that instead when it's
   // actually better — otherwise keep the original (already-empty-of-that-
   // field) records rather than losing rows for no gain.
-  function withFieldFallback(ws, records, field, placeholder) {
+  function withFieldFallback(ws, records, field, placeholder, cache, diagOut) {
     if (records.length === 0 || fieldResolvedCount(records, field, placeholder) > 0) return Promise.resolve(records);
-    return readUnderlyingRecordsScored(ws, function (recs) { return fieldResolvedCount(recs, field, placeholder); }).then(function (underlying) {
-      return fieldResolvedCount(underlying, field, placeholder) > 0 ? underlying : records;
+    return readUnderlyingRecordsScored(ws, function (recs) { return fieldResolvedCount(recs, field, placeholder); }, diagOut, cache).then(function (underlying) {
+      var resolved = fieldResolvedCount(underlying, field, placeholder);
+      if (diagOut) {
+        diagOut.fallback = resolved > 0
+          ? (field + ' unresolved via summary read on "' + ws.name + '" — used its underlying table instead (' +
+             resolved + " of " + underlying.length + " rows resolved " + field + ").")
+          : (field + ' never resolved on "' + ws.name + '" — tried summary read and its underlying table(s) directly.');
+      }
+      return resolved > 0 ? underlying : records;
     });
   }
 
@@ -1187,8 +1216,13 @@
   // fallback is active — still populated every load, so it stays
   // inspectable via dev tools (or by re-adding el.style.display = "block"
   // below) if a similar "field visible in Tableau, missing via the
-  // Extensions API" issue needs revisiting.
-  function renderDiagInfo(agingDiag, turnoverDiag) {
+  // Extensions API" issue needs revisiting. Covers every worksheet with a
+  // known or suspected field-drop issue (BRANCH/BRAND/CLASS_STOCK/
+  // AGING_TIER) — not just aging/turnover — so a Tableau-side fix to any of
+  // them can be confirmed here: a fixed field should stop showing a
+  // "fallback" line and its "RAW column names from Tableau" should list it
+  // directly.
+  function renderDiagInfo(diags, perf) {
     function line(name, diag) {
       if (!diag.found) return name + ": worksheet not found";
       var cols = diag.colIndex ? Object.keys(diag.colIndex).sort().join(", ") : "(none)";
@@ -1204,10 +1238,30 @@
     }).join(", ");
     var el = document.getElementById("diagInfo");
     el.textContent = "all worksheets on this dashboard: " + allNames + "\n" +
-      line(AGING_SHEET_NAME, agingDiag) + "\n" + line(TURNOVER_SHEET_NAME, turnoverDiag);
+      diags.map(function (d) { return line(d.name, d.diag); }).join("\n") +
+      (perf ? "\n" + perf : "");
+  }
+
+  // Human-readable summary of where load time went this run, so a slow
+  // load can be diagnosed by revealing #diagInfo (or reading the console)
+  // instead of guessing — see readUnderlyingRecordsScored's comment for why
+  // the "underlying-table reads" count matters: each one is a full,
+  // unaggregated, all-columns pull and by far the heaviest thing this
+  // extension can do per load.
+  function formatPerfSummary(perf) {
+    return "load timing: summary reads " + perf.summaryMs.toFixed(0) + "ms, field-fallback checks " +
+      perf.fallbackMs.toFixed(0) + "ms (" + perf.underlyingReads + " underlying-table read" +
+      (perf.underlyingReads === 1 ? "" : "s") + "), aging-tier fallback " + perf.tierMs.toFixed(0) +
+      "ms, total " + perf.totalMs.toFixed(0) + "ms";
   }
 
   function loadAllData() {
+    var mySeq = ++currentLoadSeq;
+    // True once a newer loadAllData() call has started — checked at every
+    // async resumption point below so a slow, superseded run gives up
+    // instead of doing (or overwriting another run's) unnecessary work.
+    function stale() { return mySeq !== currentLoadSeq; }
+
     showLoading("กำลังโหลดข้อมูลจาก Tableau...");
     hideError();
 
@@ -1218,6 +1272,14 @@
     var turnoverWs = findWorksheetByName(TURNOVER_SHEET_NAME);
     var turnoverMcWs = findWorksheetByName(TURNOVER_MC_SHEET_NAME);
     var agingDiag = {}, turnoverDiag = {}, agingDetailDiag = {};
+    var turnoverByBranchDiag = {}, turnoverBrandDiag = {};
+
+    // One cache per load, shared by every fallback check below, so a
+    // worksheet whose underlying table(s) more than one check needs (e.g.
+    // aging_detail, checked for both CLASS_STOCK and — later — AGING_TIER)
+    // gets that heavy read fetched at most once instead of once per check.
+    var underlyingCache = new Map();
+    var tLoadStart = nowMs();
 
     // aging_detail is now loaded eagerly (not just lazily on Export) — the
     // KPI row's SKU Count and Dead Stock Value read it directly, since
@@ -1227,11 +1289,13 @@
     Promise.all([
       readWorksheetRecords(agingWs, agingDiag),
       readWorksheetRecords(agingDetailWs, agingDetailDiag),
-      readWorksheetRecords(turnoverByBranchWs),
-      readWorksheetRecords(turnoverBrandWs),
+      readWorksheetRecords(turnoverByBranchWs, turnoverByBranchDiag),
+      readWorksheetRecords(turnoverBrandWs, turnoverBrandDiag),
       readWorksheetRecords(turnoverWs, turnoverDiag),
       readWorksheetRecords(turnoverMcWs)
     ]).then(function (results) {
+      if (stale()) return;
+      var tSummaryDone = nowMs();
       var agingRecords = results[0];
       S.agingDetailData = results[1];
       S.turnoverByBranchData = results[2];
@@ -1248,22 +1312,40 @@
       // Stock Value need aging_detail's CLASS_STOCK/ARTICLE_ID regardless
       // of whether "aging" itself ever needs aging_detail as a fallback.
       return Promise.all([
-        withFieldFallback(turnoverByBranchWs, S.turnoverByBranchData, "branch", "Unspecified"),
-        withFieldFallback(turnoverBrandWs, S.turnoverBrandData, "brand", ""),
-        withFieldFallback(agingDetailWs, S.agingDetailData, "classStock", "Unclassified"),
-        withFieldFallback(turnoverWs, S.turnoverData, "branch", "Unspecified")
+        withFieldFallback(turnoverByBranchWs, S.turnoverByBranchData, "branch", "Unspecified", underlyingCache, turnoverByBranchDiag),
+        withFieldFallback(turnoverBrandWs, S.turnoverBrandData, "brand", "", underlyingCache, turnoverBrandDiag),
+        withFieldFallback(agingDetailWs, S.agingDetailData, "classStock", "Unclassified", underlyingCache, agingDetailDiag),
+        withFieldFallback(turnoverWs, S.turnoverData, "branch", "Unspecified", underlyingCache, turnoverDiag)
       ]).then(function (fixed) {
+        if (stale()) return;
+        var tFallbackDone = nowMs();
         S.turnoverByBranchData = fixed[0];
         S.turnoverBrandData = fixed[1];
         S.agingDetailData = fixed[2];
         S.turnoverData = fixed[3];
-        return continueLoad();
+        return continueLoad(tSummaryDone, tFallbackDone);
       });
 
-      function continueLoad() {
-        function finish() {
+      function continueLoad(tSummaryDone, tFallbackDone) {
+        function finish(tTierDone) {
+          if (stale()) return;
           S.agingData = agingRecords;
-          renderDiagInfo(agingDiag, turnoverDiag);
+          var tEnd = nowMs();
+          var perf = {
+            summaryMs: tSummaryDone - tLoadStart,
+            fallbackMs: tFallbackDone - tSummaryDone,
+            underlyingReads: underlyingCache.size,
+            tierMs: tEnd - (tTierDone || tFallbackDone),
+            totalMs: tEnd - tLoadStart
+          };
+          console.log("[VendorStockPortal] " + formatPerfSummary(perf));
+          renderDiagInfo([
+            { name: AGING_SHEET_NAME, diag: agingDiag },
+            { name: AGING_DETAIL_SHEET_NAME, diag: agingDetailDiag },
+            { name: TURNOVER_SHEET_NAME, diag: turnoverDiag },
+            { name: TURNOVER_BY_BRANCH_SHEET_NAME, diag: turnoverByBranchDiag },
+            { name: TURNOVER_BRAND_SHEET_NAME, diag: turnoverBrandDiag }
+          ], formatPerfSummary(perf));
 
           var titleSource = S.agingData[0] || S.turnoverData[0] || S.turnoverByBranchData[0] || S.turnoverMcData[0];
           if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
@@ -1323,7 +1405,9 @@
           return;
         }
 
-        readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag).then(function (underlyingRecords) {
+        readUnderlyingAgingRecords(agingDetailWs, agingDetailDiag, underlyingCache).then(function (underlyingRecords) {
+          if (stale()) return;
+          var tTierDone = nowMs();
           if (tierResolvedCount(underlyingRecords) > 0) {
             agingDiag.fallback = 'AGING_TIER unresolved via getSummaryDataAsync on every sheet tried — used underlying table data for "' +
               AGING_DETAIL_SHEET_NAME + '" instead (' + tierResolvedCount(underlyingRecords) + " of " + underlyingRecords.length + " rows resolved a tier).";
@@ -1338,13 +1422,33 @@
               '" (summary), and its underlying table(s) directly. Underlying tables tried: ' +
               (agingDetailDiag.underlyingAttempts ? agingDetailDiag.underlyingAttempts.join(" || ") : "(none)") + ".";
           }
-          finish();
+          finish(tTierDone);
         });
       }
     }).catch(function (err) {
+      if (stale()) return;
       showError("Could not load data from Tableau: " + (err.message || err));
       hideLoading();
     });
+  }
+
+  // A single filter/parameter tweak on the dashboard fires FilterChanged
+  // and/or SummaryDataChanged on every affected worksheet almost
+  // simultaneously — with 6 worksheets listened to, that's up to 12 nearly
+  // simultaneous events. Without coalescing, each one used to kick off its
+  // own full loadAllData() run (6 parallel summary reads plus, in practice,
+  // several heavy underlying-table fallback reads), multiplying real
+  // Tableau API load several-fold for what the user experienced as one
+  // action. Debounce them into a single reload; loadAllData()'s own
+  // sequence guard (currentLoadSeq/stale()) still protects against a
+  // reload that was already in flight when a newer one gets scheduled.
+  var reloadDebounceTimer = null;
+  function scheduleReload() {
+    if (reloadDebounceTimer) clearTimeout(reloadDebounceTimer);
+    reloadDebounceTimer = setTimeout(function () {
+      reloadDebounceTimer = null;
+      loadAllData();
+    }, 300);
   }
 
   function registerFilterListeners() {
@@ -1352,9 +1456,8 @@
     unregisterFns = [];
     var dashboard = tableau.extensions.dashboardContent.dashboard;
     dashboard.worksheets.forEach(function (ws) {
-      var fn = function () { loadAllData(); };
-      unregisterFns.push(ws.addEventListener(tableau.TableauEventType.FilterChanged, fn));
-      unregisterFns.push(ws.addEventListener(tableau.TableauEventType.SummaryDataChanged, fn));
+      unregisterFns.push(ws.addEventListener(tableau.TableauEventType.FilterChanged, scheduleReload));
+      unregisterFns.push(ws.addEventListener(tableau.TableauEventType.SummaryDataChanged, scheduleReload));
     });
   }
 
