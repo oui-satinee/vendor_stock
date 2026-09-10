@@ -1294,19 +1294,6 @@
     return "load timing: " + parts.join(", ");
   }
 
-  // Short header-visible version of the same timing (test build only — see
-  // #metaLoadTime): first paint's own number, then on the final render
-  // either that same number alone (no background work was needed) or a
-  // "<first> + <bg> = <total>" breakdown so it's obvious how much of the
-  // total came from the field/tier enrichment wave specifically.
-  function formatLoadTimeMeta(phase, timings) {
-    if (phase !== "final") return timings.totalMs.toFixed(0) + "ms (syncing…)";
-    var bg = timings.fallbackMs + timings.tierMs;
-    return bg > 50
-      ? (timings.totalMs - bg).toFixed(0) + "ms + " + bg.toFixed(0) + "ms bg = " + timings.totalMs.toFixed(0) + "ms"
-      : timings.totalMs.toFixed(0) + "ms";
-  }
-
   function loadAllData() {
     loadInFlight = true;
     // How long this run sat waiting on the debounce timer (see
@@ -1439,7 +1426,6 @@
         ? formatPerfSummary(timings)
         : formatPerfSummary(timings) + "; background field/tier enrichment continuing...";
       console.log("[VendorStockPortal] " + perfLine);
-      document.getElementById("metaLoadTime").textContent = formatLoadTimeMeta(phase, timings);
       renderDiagInfo([
         { name: AGING_DETAIL_SHEET_NAME, diag: agingDetailDiag },
         { name: TURNOVER_SHEET_NAME, diag: turnoverDiag },
