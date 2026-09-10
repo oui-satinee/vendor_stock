@@ -1145,73 +1145,21 @@
   // unaggregated, all-columns pull of the underlying data source — one of
   // the heaviest calls this extension makes. Memoizing by worksheet avoids
   // firing that same heavy read twice in one load.
-  // Confirmed via real diagInfo output (not just theory): on this workbook,
-  // BRANCH/BRAND/CLASS_STOCK fail to resolve via getSummaryDataAsync on
-  // EVERY load of turnover/turnover_by_branch/turnover_brand/aging_detail,
-  // not occasionally — ruled out being missing from the Marks card
-  // (screenshot-confirmed present, e.g. turnover_brand's BRAND/CLASS_STOCK
-  // form its own crosstab rows), blending (checked, normal same-data-source
-  // icon), and table calc (these fields resolve via the underlying table,
-  // which calculated fields don't participate in) — same unexplained
-  // Extensions API symptom as this file's AGING_TIER history. Since the
-  // full, unaggregated, includeAllColumns:true underlying-table read this
-  // forces is confirmed the dominant cost (~14 of ~14.8s total load time),
-  // and it's now a permanent tax rather than a rare fallback, this caches
-  // each worksheet's actually-needed column IDs (learned from one full
-  // read) so later reads in the same page session can request just those
-  // columns instead of the entire data source's width. Keyed by worksheet
-  // NAME (not the worksheet object) so it survives across separate
-  // loadAllData() calls in the same session — unlike the per-load `cache`
-  // Map above, which is deliberately fresh every load. Does nothing for the
-  // very first read of a given worksheet in a session (there's no way to
-  // know the column IDs before having read them at least once); helps every
-  // read after that, including reads triggered by filter-change reloads.
-  var knownUnderlyingColumns = {}; // wsName -> { tableId, fieldIds: [...] }
-
-  function learnUnderlyingColumns(wsName, tableId, columns) {
-    var colIndex = buildColumnIndex(columns);
-    var fieldIds = [];
-    for (var field in colIndex) {
-      var col = columns[colIndex[field]];
-      if (col && col.fieldId) fieldIds.push(col.fieldId);
-    }
-    if (fieldIds.length > 0) knownUnderlyingColumns[wsName] = { tableId: tableId, fieldIds: fieldIds };
-  }
-
   function readUnderlyingRecordsScored(ws, scoreFn, diagOut, cache) {
     if (!ws || typeof ws.getUnderlyingTablesAsync !== "function") return Promise.resolve([]);
-
-    function fullRead() {
-      return ws.getUnderlyingTablesAsync().then(function (tables) {
+    var perTablePromise = cache && cache.get(ws);
+    if (!perTablePromise) {
+      perTablePromise = ws.getUnderlyingTablesAsync().then(function (tables) {
         return Promise.all(tables.map(function (t) {
           return ws.getUnderlyingTableDataAsync(t.id, { includeAllColumns: true }).then(function (dataTable) {
             var tableDiag = {};
             var records = extractRecords(dataTable, tableDiag);
-            return { table: t, records: records, diag: tableDiag, columns: dataTable.columns };
+            return { table: t, records: records, diag: tableDiag };
           }).catch(function (err) {
             return { table: t, records: [], diag: { error: err.message || String(err) } };
           });
         }));
       });
-    }
-
-    var perTablePromise = cache && cache.get(ws);
-    if (!perTablePromise) {
-      var known = knownUnderlyingColumns[ws.name];
-      perTablePromise = known
-        ? ws.getUnderlyingTableDataAsync(known.tableId, { includeAllColumns: false, columnsToIncludeById: known.fieldIds }).then(function (dataTable) {
-            var tableDiag = {};
-            var records = extractRecords(dataTable, tableDiag);
-            // Empty result from a previously-good table/column-id combo
-            // means something changed (workbook edited, table id no longer
-            // valid) — treat the cache as stale rather than trust it blindly.
-            if (records.length === 0) throw new Error("stale underlying-column cache for \"" + ws.name + "\"");
-            return [{ table: { id: known.tableId, caption: ws.name }, records: records, diag: tableDiag }];
-          }).catch(function () {
-            delete knownUnderlyingColumns[ws.name];
-            return fullRead();
-          })
-        : fullRead();
       if (cache) cache.set(ws, perTablePromise);
     }
     return perTablePromise.then(function (perTable) {
@@ -1221,15 +1169,11 @@
             (r.diag.rawColumnNames ? r.diag.rawColumnNames.join(" | ") : (r.diag.error || "(none)"));
         });
       }
-      var best = [], bestScore = -1, bestEntry = null;
+      var best = [], bestScore = -1;
       perTable.forEach(function (r) {
         var score = scoreFn(r.records);
-        if (score > bestScore) { bestScore = score; best = r.records; bestEntry = r; }
+        if (score > bestScore) { bestScore = score; best = r.records; }
       });
-      // Only present on a fullRead() entry (the restricted-read path's
-      // synthetic entry omits it) — learn from the table that actually won,
-      // not just whichever was read first.
-      if (bestEntry && bestEntry.columns) learnUnderlyingColumns(ws.name, bestEntry.table.id, bestEntry.columns);
       return best;
     }).catch(function () { return []; });
   }
