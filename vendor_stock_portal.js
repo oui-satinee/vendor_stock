@@ -335,6 +335,13 @@
     document.getElementById("loadingText").textContent = msg || "กำลังโหลดข้อมูลจาก Tableau...";
   }
   function hideLoading() { document.getElementById("loadingOverlay").style.display = "none"; }
+  // Thin, non-blocking banner shown only while the dashboard is already
+  // rendered from fast summary-data reads but the slower background
+  // enrichment pass (BRANCH/BRAND/CLASS_STOCK/AGING_TIER field-fallback —
+  // see loadAllData()) is still filling in fields the Extensions API is
+  // known to sometimes drop from those summary reads.
+  function showSyncStatus() { document.getElementById("syncStatus").style.display = "block"; }
+  function hideSyncStatus() { document.getElementById("syncStatus").style.display = "none"; }
   function showError(msg) {
     document.getElementById("errorBanner").style.display = "block";
     document.getElementById("errorText").textContent = msg;
@@ -1264,6 +1271,7 @@
 
     showLoading("กำลังโหลดข้อมูลจาก Tableau...");
     hideError();
+    hideSyncStatus();
 
     var agingWs = findWorksheetByName(AGING_SHEET_NAME);
     var agingDetailWs = findWorksheetByName(AGING_DETAIL_SHEET_NAME);
@@ -1273,6 +1281,7 @@
     var turnoverMcWs = findWorksheetByName(TURNOVER_MC_SHEET_NAME);
     var agingDiag = {}, turnoverDiag = {}, agingDetailDiag = {};
     var turnoverByBranchDiag = {}, turnoverBrandDiag = {};
+    var agingRecords = [];
 
     // One cache per load, shared by every fallback check below, so a
     // worksheet whose underlying table(s) more than one check needs (e.g.
@@ -1280,6 +1289,73 @@
     // gets that heavy read fetched at most once instead of once per check.
     var underlyingCache = new Map();
     var tLoadStart = nowMs();
+
+    // Renders the dashboard from whatever's in S.*/agingRecords right now.
+    // Called twice: once right after the fast summary reads below (so the
+    // on-screen numbers aren't held hostage by the much slower background
+    // field/tier enrichment further down), then again once that enrichment
+    // finishes, to patch in any BRANCH/BRAND/CLASS_STOCK/AGING_TIER values
+    // it resolved. Safe to call twice — it's a pure function of current
+    // state, same as every filter-triggered reload already relies on.
+    function render(phase, timings) {
+      if (stale()) return;
+      S.agingData = agingRecords;
+      var perfLine = phase === "final"
+        ? formatPerfSummary(timings)
+        : "load timing: first paint (summary reads only) " + timings.summaryMs.toFixed(0) +
+          "ms; background field/tier enrichment continuing...";
+      console.log("[VendorStockPortal] " + perfLine);
+      renderDiagInfo([
+        { name: AGING_SHEET_NAME, diag: agingDiag },
+        { name: AGING_DETAIL_SHEET_NAME, diag: agingDetailDiag },
+        { name: TURNOVER_SHEET_NAME, diag: turnoverDiag },
+        { name: TURNOVER_BY_BRANCH_SHEET_NAME, diag: turnoverByBranchDiag },
+        { name: TURNOVER_BRAND_SHEET_NAME, diag: turnoverBrandDiag }
+      ], perfLine);
+
+      var titleSource = S.agingData[0] || S.turnoverData[0] || S.turnoverByBranchData[0] || S.turnoverMcData[0];
+      if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
+      document.getElementById("metaSnapshot").textContent =
+        formatSnapshotDate(titleSource && titleSource.populationDate) || new Date().toISOString().slice(0, 10);
+
+      var missing = [];
+      if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
+      if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
+      if (!turnoverByBranchWs) missing.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
+      if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
+      if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
+      if (!turnoverMcWs) missing.push('"' + TURNOVER_MC_SHEET_NAME + '"');
+
+      // Found the worksheet, but it produced zero usable rows — different
+      // problem than "not found", and silent otherwise, so call it out
+      // explicitly instead of just showing an empty section.
+      var empty = [];
+      if (agingWs && S.agingData.length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
+      if (agingDetailWs && S.agingDetailData.length === 0) empty.push('"' + AGING_DETAIL_SHEET_NAME + '"');
+      if (turnoverByBranchWs && S.turnoverByBranchData.length === 0) empty.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
+      if (turnoverBrandWs && S.turnoverBrandData.length === 0) empty.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
+      if (turnoverWs && S.turnoverData.length === 0) empty.push('"' + TURNOVER_SHEET_NAME + '"');
+      if (turnoverMcWs && S.turnoverMcData.length === 0) empty.push('"' + TURNOVER_MC_SHEET_NAME + '"');
+
+      hideLoading();
+      if (missing.length) {
+        showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
+          ". Add a worksheet object named exactly that (case-insensitive) — " +
+          '"' + AGING_SHEET_NAME + '" feeds section 01\'s charts, "' + AGING_DETAIL_SHEET_NAME +
+          '" feeds the KPI row\'s SKU Count/Dead Stock Value (and Aging > 180 Days as a fallback), "' + TURNOVER_SHEET_NAME +
+          '" feeds the rest of the KPI row, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
+          '" feed section 02-03, "' + TURNOVER_MC_SHEET_NAME + '" feeds the Turnover-by-MC (Top10) table.');
+      } else if (empty.length) {
+        showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
+          ". Every row needs UR_AMT or UR_QTY to be non-zero — check that those fields are actually " +
+          "placed on the worksheet (on the Marks card, e.g. as Detail), not just present in the data " +
+          "source. Open the browser dev console for a \"[VendorStockPortal] columns detected\" log " +
+          "showing exactly which columns were matched.");
+      } else {
+        hideError();
+      }
+      updateAll();
+    }
 
     // aging_detail is now loaded eagerly (not just lazily on Export) — the
     // KPI row's SKU Count and Dead Stock Value read it directly, since
@@ -1296,12 +1372,34 @@
     ]).then(function (results) {
       if (stale()) return;
       var tSummaryDone = nowMs();
-      var agingRecords = results[0];
+      agingRecords = results[0];
       S.agingDetailData = results[1];
       S.turnoverByBranchData = results[2];
       S.turnoverBrandData = results[3];
       S.turnoverData = results[4];
       S.turnoverMcData = results[5];
+
+      // First paint: every number/box the on-screen dashboard shows already
+      // has real data at this point, except BRANCH/BRAND/CLASS_STOCK/
+      // AGING_TIER — fields the Extensions API is known (see this file's/
+      // project memory's debugging history) to sometimes drop from summary
+      // reads, in which case they still carry extractRecords' placeholder
+      // ("Unspecified"/"Unclassified"/no tier bucket) until the slower
+      // field/tier enrichment below finishes and patches them in. Showing
+      // the dashboard now instead of waiting on that enrichment is the
+      // whole point of this two-phase load: in production, that enrichment
+      // wave has been measured to cost ~14-18s out of an ~15-18s total
+      // load — nearly the entire thing — for zero benefit to any number
+      // that's already correct without it.
+      render("first", { summaryMs: tSummaryDone - tLoadStart });
+
+      var needsEnrichment =
+        (S.turnoverByBranchData.length > 0 && fieldResolvedCount(S.turnoverByBranchData, "branch", "Unspecified") === 0) ||
+        (S.turnoverBrandData.length > 0 && fieldResolvedCount(S.turnoverBrandData, "brand", "") === 0) ||
+        (S.agingDetailData.length > 0 && fieldResolvedCount(S.agingDetailData, "classStock", "Unclassified") === 0) ||
+        (S.turnoverData.length > 0 && fieldResolvedCount(S.turnoverData, "branch", "Unspecified") === 0) ||
+        agingTierTotallyUnresolved(agingRecords);
+      if (needsEnrichment) showSyncStatus();
 
       // BRANCH on turnover_by_branch and BRAND on turnover_brand have both
       // shown the same "confirmed present in Tableau, absent from
@@ -1329,66 +1427,15 @@
       function continueLoad(tSummaryDone, tFallbackDone) {
         function finish(tTierDone) {
           if (stale()) return;
-          S.agingData = agingRecords;
+          hideSyncStatus();
           var tEnd = nowMs();
-          var perf = {
+          render("final", {
             summaryMs: tSummaryDone - tLoadStart,
             fallbackMs: tFallbackDone - tSummaryDone,
             underlyingReads: underlyingCache.size,
             tierMs: tEnd - (tTierDone || tFallbackDone),
             totalMs: tEnd - tLoadStart
-          };
-          console.log("[VendorStockPortal] " + formatPerfSummary(perf));
-          renderDiagInfo([
-            { name: AGING_SHEET_NAME, diag: agingDiag },
-            { name: AGING_DETAIL_SHEET_NAME, diag: agingDetailDiag },
-            { name: TURNOVER_SHEET_NAME, diag: turnoverDiag },
-            { name: TURNOVER_BY_BRANCH_SHEET_NAME, diag: turnoverByBranchDiag },
-            { name: TURNOVER_BRAND_SHEET_NAME, diag: turnoverBrandDiag }
-          ], formatPerfSummary(perf));
-
-          var titleSource = S.agingData[0] || S.turnoverData[0] || S.turnoverByBranchData[0] || S.turnoverMcData[0];
-          if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
-          document.getElementById("metaSnapshot").textContent =
-            formatSnapshotDate(titleSource && titleSource.populationDate) || new Date().toISOString().slice(0, 10);
-
-          var missing = [];
-          if (!agingWs) missing.push('"' + AGING_SHEET_NAME + '"');
-          if (!agingDetailWs) missing.push('"' + AGING_DETAIL_SHEET_NAME + '"');
-          if (!turnoverByBranchWs) missing.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
-          if (!turnoverBrandWs) missing.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
-          if (!turnoverWs) missing.push('"' + TURNOVER_SHEET_NAME + '"');
-          if (!turnoverMcWs) missing.push('"' + TURNOVER_MC_SHEET_NAME + '"');
-
-          // Found the worksheet, but it produced zero usable rows — different
-          // problem than "not found", and silent otherwise, so call it out
-          // explicitly instead of just showing an empty section.
-          var empty = [];
-          if (agingWs && S.agingData.length === 0) empty.push('"' + AGING_SHEET_NAME + '"');
-          if (agingDetailWs && S.agingDetailData.length === 0) empty.push('"' + AGING_DETAIL_SHEET_NAME + '"');
-          if (turnoverByBranchWs && S.turnoverByBranchData.length === 0) empty.push('"' + TURNOVER_BY_BRANCH_SHEET_NAME + '"');
-          if (turnoverBrandWs && S.turnoverBrandData.length === 0) empty.push('"' + TURNOVER_BRAND_SHEET_NAME + '"');
-          if (turnoverWs && S.turnoverData.length === 0) empty.push('"' + TURNOVER_SHEET_NAME + '"');
-          if (turnoverMcWs && S.turnoverMcData.length === 0) empty.push('"' + TURNOVER_MC_SHEET_NAME + '"');
-
-          hideLoading();
-          if (missing.length) {
-            showError("Worksheet(s) not found on this dashboard: " + missing.join(", ") +
-              ". Add a worksheet object named exactly that (case-insensitive) — " +
-              '"' + AGING_SHEET_NAME + '" feeds section 01\'s charts, "' + AGING_DETAIL_SHEET_NAME +
-              '" feeds the KPI row\'s SKU Count/Dead Stock Value (and Aging > 180 Days as a fallback), "' + TURNOVER_SHEET_NAME +
-              '" feeds the rest of the KPI row, "' + TURNOVER_BY_BRANCH_SHEET_NAME + '"/"' + TURNOVER_BRAND_SHEET_NAME +
-              '" feed section 02-03, "' + TURNOVER_MC_SHEET_NAME + '" feeds the Turnover-by-MC (Top10) table.');
-          } else if (empty.length) {
-            showError("Worksheet(s) found but produced no usable rows: " + empty.join(", ") +
-              ". Every row needs UR_AMT or UR_QTY to be non-zero — check that those fields are actually " +
-              "placed on the worksheet (on the Marks card, e.g. as Detail), not just present in the data " +
-              "source. Open the browser dev console for a \"[VendorStockPortal] columns detected\" log " +
-              "showing exactly which columns were matched.");
-          } else {
-            hideError();
-          }
-          updateAll();
+          });
         }
 
         // "aging" produced rows but not one of them has a resolvable tier —
@@ -1427,6 +1474,7 @@
       }
     }).catch(function (err) {
       if (stale()) return;
+      hideSyncStatus();
       showError("Could not load data from Tableau: " + (err.message || err));
       hideLoading();
     });
