@@ -1152,6 +1152,23 @@
   // unaggregated, all-columns pull of the underlying data source — one of
   // the heaviest calls this extension makes. Memoizing by worksheet avoids
   // firing that same heavy read twice in one load.
+  //
+  // Deliberately NOT cached *across* loads (a `cache` created fresh per
+  // loadAllData() call, not module-level/persistent): a real attempt at
+  // that was already tried and reverted — see project memory's "A
+  // column-ID-caching attempt was tried and reverted" section. It cached
+  // each worksheet's underlying-table/column IDs to do a narrower
+  // `columnsToIncludeById` read on later loads, verified correct in a
+  // Playwright mock, but tested against the real workbook it made load
+  // time WORSE (14.6s -> 18s), because the cached ids are apparently tied
+  // to the read's filter context and get invalidated on every filter
+  // change — which is exactly when this function fires. Since
+  // BRANCH/BRAND/CLASS_STOCK/AGING_TIER are confirmed (see this file's
+  // "Real-Tableau investigation" history) to need this fallback on every
+  // single load in production, not intermittently, there is no filter-
+  // independent slice of this read left to cache — re-attempting any form
+  // of cross-load id/table caching here needs verification against the
+  // real workbook before merging, not just a mock, per that same note.
   function readUnderlyingRecordsScored(ws, scoreFn, diagOut, cache) {
     if (!ws || typeof ws.getUnderlyingTablesAsync !== "function") return Promise.resolve([]);
     var perTablePromise = cache && cache.get(ws);
@@ -1254,12 +1271,26 @@
   // instead of guessing — see readUnderlyingRecordsScored's comment for why
   // the "underlying-table reads" count matters: each one is a full,
   // unaggregated, all-columns pull and by far the heaviest thing this
-  // extension can do per load.
+  // extension can do per load. Covers the whole pipeline a reload goes
+  // through: event -> debounce -> per-worksheet reads -> field-fallback ->
+  // aging-tier fallback -> render.
   function formatPerfSummary(perf) {
-    return "load timing: summary reads " + perf.summaryMs.toFixed(0) + "ms, field-fallback checks " +
-      perf.fallbackMs.toFixed(0) + "ms (" + perf.underlyingReads + " underlying-table read" +
-      (perf.underlyingReads === 1 ? "" : "s") + "), aging-tier fallback " + perf.tierMs.toFixed(0) +
-      "ms, total " + perf.totalMs.toFixed(0) + "ms";
+    var parts = [];
+    if (perf.debounceMs != null) parts.push("event->debounce " + perf.debounceMs.toFixed(0) + "ms");
+    if (perf.perWorksheetMs) {
+      parts.push("per-sheet [" + Object.keys(perf.perWorksheetMs).map(function (name) {
+        return name + " " + perf.perWorksheetMs[name].toFixed(0) + "ms";
+      }).join(", ") + "]");
+    }
+    parts.push("summary reads " + perf.summaryMs.toFixed(0) + "ms");
+    if (perf.fallbackMs != null) {
+      parts.push("field-fallback " + perf.fallbackMs.toFixed(0) + "ms (" + perf.underlyingReads + " underlying-table read" +
+        (perf.underlyingReads === 1 ? "" : "s") + ")");
+    }
+    if (perf.tierMs != null) parts.push("aging-tier fallback " + perf.tierMs.toFixed(0) + "ms");
+    if (perf.renderMs != null) parts.push("render " + perf.renderMs.toFixed(0) + "ms");
+    parts.push("total " + perf.totalMs.toFixed(0) + "ms");
+    return "load timing: " + parts.join(", ");
   }
 
   // Short header-visible version of the same timing (test build only — see
@@ -1268,19 +1299,42 @@
   // "<first> + <bg> = <total>" breakdown so it's obvious how much of the
   // total came from the field/tier enrichment wave specifically.
   function formatLoadTimeMeta(phase, timings) {
-    if (phase !== "final") return timings.summaryMs.toFixed(0) + "ms (syncing…)";
+    if (phase !== "final") return timings.totalMs.toFixed(0) + "ms (syncing…)";
     var bg = timings.fallbackMs + timings.tierMs;
     return bg > 50
-      ? timings.summaryMs.toFixed(0) + "ms + " + bg.toFixed(0) + "ms bg = " + timings.totalMs.toFixed(0) + "ms"
+      ? (timings.totalMs - bg).toFixed(0) + "ms + " + bg.toFixed(0) + "ms bg = " + timings.totalMs.toFixed(0) + "ms"
       : timings.totalMs.toFixed(0) + "ms";
   }
 
   function loadAllData() {
+    loadInFlight = true;
+    // How long this run sat waiting on the debounce timer (see
+    // scheduleReload) before actually starting — null for the one-off
+    // initial call from initializeExtension(), which no burst preceded.
+    var debounceMs = burstStartMs != null ? nowMs() - burstStartMs : null;
+    burstStartMs = null;
+
     var mySeq = ++currentLoadSeq;
     // True once a newer loadAllData() call has started — checked at every
     // async resumption point below so a slow, superseded run gives up
     // instead of doing (or overwriting another run's) unnecessary work.
+    // With the loadInFlight lock above, a filter-triggered reload can no
+    // longer start while one is already running, so in practice this only
+    // ever guards the initial load against a very-early filter event — kept
+    // as-is (cheap insurance) rather than relied on to prevent overlap.
     function stale() { return mySeq !== currentLoadSeq; }
+
+    // Releases the busy lock so a reload deferred by it (pendingReloadRequested)
+    // can run. Called from every true terminal point of this run (success or
+    // error) — never from a `stale()` early-return, since a stale run's
+    // "completion" doesn't mean the run that superseded it is done too.
+    function releaseLoadLock() {
+      loadInFlight = false;
+      if (pendingReloadRequested) {
+        pendingReloadRequested = false;
+        scheduleReload();
+      }
+    }
 
     showLoading("กำลังโหลดข้อมูลจาก Tableau...");
     hideError();
@@ -1303,6 +1357,17 @@
     var underlyingCache = new Map();
     var tLoadStart = nowMs();
 
+    // Per-worksheet timing for the perf log/diagInfo — which of the 6
+    // parallel summary reads is actually slow, not just their combined time.
+    var perWorksheetMs = {};
+    function timedRead(ws, diagOut, label) {
+      var t0 = nowMs();
+      return readWorksheetRecords(ws, diagOut).then(function (records) {
+        perWorksheetMs[label] = nowMs() - t0;
+        return records;
+      });
+    }
+
     // Renders the dashboard from whatever's in S.*/agingRecords right now.
     // Called twice: once right after the fast summary reads below (so the
     // on-screen numbers aren't held hostage by the much slower background
@@ -1313,19 +1378,6 @@
     function render(phase, timings) {
       if (stale()) return;
       S.agingData = agingRecords;
-      var perfLine = phase === "final"
-        ? formatPerfSummary(timings)
-        : "load timing: first paint (summary reads only) " + timings.summaryMs.toFixed(0) +
-          "ms; background field/tier enrichment continuing...";
-      console.log("[VendorStockPortal] " + perfLine);
-      document.getElementById("metaLoadTime").textContent = formatLoadTimeMeta(phase, timings);
-      renderDiagInfo([
-        { name: AGING_SHEET_NAME, diag: agingDiag },
-        { name: AGING_DETAIL_SHEET_NAME, diag: agingDetailDiag },
-        { name: TURNOVER_SHEET_NAME, diag: turnoverDiag },
-        { name: TURNOVER_BY_BRANCH_SHEET_NAME, diag: turnoverByBranchDiag },
-        { name: TURNOVER_BRAND_SHEET_NAME, diag: turnoverBrandDiag }
-      ], perfLine);
 
       var titleSource = S.agingData[0] || S.turnoverData[0] || S.turnoverByBranchData[0] || S.turnoverMcData[0];
       if (titleSource && titleSource.vendorName) document.getElementById("reportTitle").textContent = titleSource.vendorName;
@@ -1368,7 +1420,29 @@
       } else {
         hideError();
       }
+
+      var tRenderStart = nowMs();
       updateAll();
+      timings.renderMs = nowMs() - tRenderStart;
+      timings.debounceMs = debounceMs;
+      timings.perWorksheetMs = perWorksheetMs;
+      // "first" phase has no total yet (the final render below sets its
+      // own, covering the whole load including background enrichment) —
+      // fill in "elapsed so far" so formatPerfSummary always has one.
+      if (timings.totalMs == null) timings.totalMs = nowMs() - tLoadStart;
+
+      var perfLine = phase === "final"
+        ? formatPerfSummary(timings)
+        : formatPerfSummary(timings) + "; background field/tier enrichment continuing...";
+      console.log("[VendorStockPortal] " + perfLine);
+      document.getElementById("metaLoadTime").textContent = formatLoadTimeMeta(phase, timings);
+      renderDiagInfo([
+        { name: AGING_SHEET_NAME, diag: agingDiag },
+        { name: AGING_DETAIL_SHEET_NAME, diag: agingDetailDiag },
+        { name: TURNOVER_SHEET_NAME, diag: turnoverDiag },
+        { name: TURNOVER_BY_BRANCH_SHEET_NAME, diag: turnoverByBranchDiag },
+        { name: TURNOVER_BRAND_SHEET_NAME, diag: turnoverBrandDiag }
+      ], perfLine);
     }
 
     // aging_detail is now loaded eagerly (not just lazily on Export) — the
@@ -1377,12 +1451,12 @@
     // API even when confirmed present in Tableau itself. Also reused below
     // as the AGING_TIER fallback candidate instead of a separate fetch.
     Promise.all([
-      readWorksheetRecords(agingWs, agingDiag),
-      readWorksheetRecords(agingDetailWs, agingDetailDiag),
-      readWorksheetRecords(turnoverByBranchWs, turnoverByBranchDiag),
-      readWorksheetRecords(turnoverBrandWs, turnoverBrandDiag),
-      readWorksheetRecords(turnoverWs, turnoverDiag),
-      readWorksheetRecords(turnoverMcWs)
+      timedRead(agingWs, agingDiag, AGING_SHEET_NAME),
+      timedRead(agingDetailWs, agingDetailDiag, AGING_DETAIL_SHEET_NAME),
+      timedRead(turnoverByBranchWs, turnoverByBranchDiag, TURNOVER_BY_BRANCH_SHEET_NAME),
+      timedRead(turnoverBrandWs, turnoverBrandDiag, TURNOVER_BRAND_SHEET_NAME),
+      timedRead(turnoverWs, turnoverDiag, TURNOVER_SHEET_NAME),
+      timedRead(turnoverMcWs, null, TURNOVER_MC_SHEET_NAME)
     ]).then(function (results) {
       if (stale()) return;
       var tSummaryDone = nowMs();
@@ -1450,6 +1524,7 @@
             tierMs: tEnd - (tTierDone || tFallbackDone),
             totalMs: tEnd - tLoadStart
           });
+          releaseLoadLock();
         }
 
         // "aging" produced rows but not one of them has a resolvable tier —
@@ -1491,6 +1566,7 @@
       hideSyncStatus();
       showError("Could not load data from Tableau: " + (err.message || err));
       hideLoading();
+      releaseLoadLock();
     });
   }
 
@@ -1501,25 +1577,84 @@
   // own full loadAllData() run (6 parallel summary reads plus, in practice,
   // several heavy underlying-table fallback reads), multiplying real
   // Tableau API load several-fold for what the user experienced as one
-  // action. Debounce them into a single reload; loadAllData()'s own
-  // sequence guard (currentLoadSeq/stale()) still protects against a
-  // reload that was already in flight when a newer one gets scheduled.
+  // action. Debounce them into a single reload.
+  //
+  // Two layers of protection now, not one:
+  // - The debounce timer (below) coalesces a burst of near-simultaneous
+  //   events into one trailing call.
+  // - `loadInFlight`/`pendingReloadRequested` stop that trailing call from
+  //   starting a second, overlapping loadAllData() run if the previous one
+  //   (summary reads + the much slower field/tier enrichment wave) is still
+  //   going — a burst 600ms+ apart used to fire two full, concurrent sets
+  //   of Tableau API calls even with the debounce alone. Whichever event
+  //   arrives while busy just marks a reload as owed; loadAllData() itself
+  //   kicks that off (via scheduleReload again, so a further burst right as
+  //   it finishes still coalesces normally) the moment it's done.
+  // loadAllData()'s own sequence guard (currentLoadSeq/stale()) is kept as
+  // defense-in-depth on top of both, in case a future code path ever calls
+  // loadAllData() directly and bypasses this gate.
+  var RELOAD_DEBOUNCE_MS = 600;
   var reloadDebounceTimer = null;
+  var loadInFlight = false;
+  var pendingReloadRequested = false;
+  // Timestamp of the first event in the current debounce burst — used only
+  // to report "event -> load start" wait time in the perf log (see
+  // loadAllData()); not part of the locking logic itself.
+  var burstStartMs = null;
+
   function scheduleReload() {
+    if (!reloadDebounceTimer) burstStartMs = nowMs();
     if (reloadDebounceTimer) clearTimeout(reloadDebounceTimer);
     reloadDebounceTimer = setTimeout(function () {
       reloadDebounceTimer = null;
+      if (loadInFlight) {
+        pendingReloadRequested = true;
+        return;
+      }
       loadAllData();
-    }, 300);
+    }, RELOAD_DEBOUNCE_MS);
   }
 
   function registerFilterListeners() {
     for (var i = 0; i < unregisterFns.length; i++) unregisterFns[i]();
     unregisterFns = [];
-    var dashboard = tableau.extensions.dashboardContent.dashboard;
-    dashboard.worksheets.forEach(function (ws) {
+
+    // Only the 6 worksheets loadAllData() actually reads — listening on
+    // every worksheet on the dashboard (the previous behavior) meant an
+    // unrelated worksheet's filter/summary-data change could trigger a full
+    // reload for no reason. This extension's numbers can only change when
+    // one of these 6 does.
+    var relevantSheets = [
+      findWorksheetByName(AGING_SHEET_NAME),
+      findWorksheetByName(AGING_DETAIL_SHEET_NAME),
+      findWorksheetByName(TURNOVER_BY_BRANCH_SHEET_NAME),
+      findWorksheetByName(TURNOVER_BRAND_SHEET_NAME),
+      findWorksheetByName(TURNOVER_SHEET_NAME),
+      findWorksheetByName(TURNOVER_MC_SHEET_NAME)
+    ];
+    relevantSheets.forEach(function (ws) {
+      if (!ws) return;
       unregisterFns.push(ws.addEventListener(tableau.TableauEventType.FilterChanged, scheduleReload));
+      // Kept alongside FilterChanged, not dropped: the Extensions API's own
+      // release notes for SummaryDataChanged (added in API 1.11.0) call out
+      // that FilterChanged can fire *before* a worksheet's data has actually
+      // refreshed, so a reload triggered by FilterChanged alone can read
+      // stale (pre-filter) rows. SummaryDataChanged exists specifically to
+      // signal once data is actually ready — dropping it risks reintroducing
+      // that race for the sake of avoiding a reload that's now already
+      // scoped to just these 6 sheets and debounced/lock-guarded above.
       unregisterFns.push(ws.addEventListener(tableau.TableauEventType.SummaryDataChanged, scheduleReload));
+    });
+
+    // Parameter changes (e.g. a vendor-selector parameter) don't
+    // necessarily fire FilterChanged/SummaryDataChanged on any of the 6
+    // sheets above. ParameterChanged only exists per-Parameter, not as one
+    // dashboard-wide event, so every parameter needs its own listener.
+    var dashboard = tableau.extensions.dashboardContent.dashboard;
+    dashboard.getParametersAsync().then(function (parameters) {
+      parameters.forEach(function (p) {
+        unregisterFns.push(p.addEventListener(tableau.TableauEventType.ParameterChanged, scheduleReload));
+      });
     });
   }
 
